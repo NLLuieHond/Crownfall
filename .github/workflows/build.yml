@@ -14,10 +14,8 @@ jobs:
         continue-on-error: true
         run: |
           apt-get update && apt-get install -y curl unzip jq
-          # makerom
           URL=$(curl -s https://api.github.com/repos/3DSGuy/Project_CTR/releases/latest | jq -r '.assets[] | select(.name|test("ubuntu_x86_64")) | .browser_download_url' | head -1)
           curl -L "$URL" -o makerom.zip && unzip -o makerom.zip && chmod +x makerom
-          # bannertool
           curl -L https://github.com/carstene1ns/3ds-bannertool/releases/latest/download/bannertool.zip -o bt.zip || true
           unzip -o bt.zip || true
           BT=$(find . -name bannertool -type f | grep -i linux | head -1); chmod +x "$BT"
