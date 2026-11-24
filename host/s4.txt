@@ -1,0 +1,7 @@
+10 down 160 97
+12 up
+40 down 160 213
+42 up
+80 down 225 25
+82 up
+120 shot e
