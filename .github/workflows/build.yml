@@ -1,0 +1,32 @@
+name: Bouw Crownfall voor 3DS
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkitarm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bouw .3dsx
+        run: make
+      - name: Bouw .cia (optioneel)
+        continue-on-error: true
+        run: |
+          apt-get update && apt-get install -y curl unzip jq
+          # makerom
+          URL=$(curl -s https://api.github.com/repos/3DSGuy/Project_CTR/releases/latest | jq -r '.assets[] | select(.name|test("ubuntu_x86_64")) | .browser_download_url' | head -1)
+          curl -L "$URL" -o makerom.zip && unzip -o makerom.zip && chmod +x makerom
+          # bannertool
+          curl -L https://github.com/carstene1ns/3ds-bannertool/releases/latest/download/bannertool.zip -o bt.zip || true
+          unzip -o bt.zip || true
+          BT=$(find . -name bannertool -type f | grep -i linux | head -1); chmod +x "$BT"
+          "$BT" makebanner -i banner.png -a silence.wav -o banner.bnr
+          "$BT" makesmdh -s "Crownfall" -l "Strategiespel" -p "Crownfall" -i icon.png -o icon.icn
+          ./makerom -f cia -o crownfall.cia -elf crownfall.elf -rsf crownfall.rsf -icon icon.icn -banner banner.bnr -exefslogo -target t -DAPP_ROMFS=romfs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Crownfall-3DS
+          path: |
+            crownfall.3dsx
+            crownfall.cia
