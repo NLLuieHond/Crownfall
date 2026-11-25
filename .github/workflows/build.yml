@@ -8,6 +8,25 @@ jobs:
     container: devkitpro/devkitarm
     steps:
       - uses: actions/checkout@v4
+      - name: Herstel bestanden voor de 3DS
+        run: |
+          python3 - <<'PY'
+          p='source/main.c'; s=open(p).read()
+          s=s.replace("int len = 0; JS_ToInt32(ctx, &len, lv);","int32_t len = 0; JS_ToInt32(ctx, &len, lv);")
+          open(p,'w').write(s)
+          p='quickjs/quickjs.c'; s=open(p).read()
+          if '#ifndef PRId64' not in s:
+              s=s.replace("#include <inttypes.h>\n","#include <inttypes.h>\n#ifndef PRId64\n#define PRId64 \"lld\"\n#endif\n#ifndef PRIu64\n#define PRIu64 \"llu\"\n#endif\n#ifndef PRIx64\n#define PRIx64 \"llx\"\n#endif\n",1)
+          s=s.replace("#if !defined(EMSCRIPTEN)\n#define CONFIG_ATOMICS","#if 0\n#define CONFIG_ATOMICS",1)
+          s=s.replace("    ti = time;\n    localtime_r(&ti, &tm);\n    return -tm.tm_gmtoff / 60;","    return 0;",1)
+          s=s.replace("    /* change this to `return 0;` if compilation fails */\n    return malloc_usable_size(ptr);","    return 0;")
+          s=s.replace("    /* change this to `NULL,` if compilation fails */\n    malloc_usable_size,","    NULL,")
+          open(p,'w').write(s)
+          p='Makefile'; s=open(p).read()
+          if 'Wno-incompatible-pointer-types' not in s:
+              s=s.replace("-funsigned-char -w ","-funsigned-char -w -Wno-incompatible-pointer-types ")
+          open(p,'w').write(s)
+          PY
       - name: Bouw .3dsx
         run: make
       - name: Bouw .cia (optioneel)
