@@ -36,11 +36,15 @@ void plat_poll(Input *in) {
 static void blit(gfxScreen_t sc, Surf *s) {
   u16 fw, fh; u8 *fb = gfxGetFramebuffer(sc, GFX_LEFT, &fw, &fh); /* fw=240 (hoogte), fh=breedte */
   int W = s->w, H = s->h; if (W > fh) W = fh; if (H > fw) H = fw;
-  for (int x = 0; x < W; x++) {
-    u8 *col = fb + x * fw * 3;
-    for (int y = 0; y < H; y++) {
-      uint32_t p = s->px[y * s->w + x]; u8 *o = col + (fw - 1 - y) * 3;
-      o[0] = (p >> 16) & 255; o[1] = (p >> 8) & 255; o[2] = p & 255;
+  /* in blokjes van 8 rijen: de lees- en schrijfgeheugen blijven zo in de cache */
+  for (int yb = 0; yb < H; yb += 8) {
+    int ye = yb + 8 < H ? yb + 8 : H;
+    for (int x = 0; x < W; x++) {
+      u8 *o = fb + x * fw * 3 + (fw - 1 - yb) * 3;
+      const uint32_t *src = s->px + (size_t)yb * s->w + x;
+      for (int y = yb; y < ye; y++, o -= 3, src += s->w) {
+        uint32_t p = *src; o[0] = (p >> 16) & 255; o[1] = (p >> 8) & 255; o[2] = p & 255;
+      }
     }
   }
 }
