@@ -1605,6 +1605,26 @@ Battle.ai = function () {
   }
   this.fin();
 };
+/* ===== Snelheid: onveranderlijke lagen (vignet, kaderrand, paneelachtergrond) eenmalig tekenen en daarna kopiëren ===== */
+(function () {
+  const vOrig = vignette, vCache = {};
+  vignette = function (c, w, h) {
+    const k = w + 'x' + h;
+    if (!vCache[k]) { const cv = mkCv(w, h); vOrig(cv.getContext('2d'), w, h); vCache[k] = cv; }
+    c.drawImage(vCache[k], 0, 0);
+  };
+  const fOrig = frame, fCache = {};
+  frame = function (c, w, h) {
+    const k = w + 'x' + h;
+    if (!fCache[k]) { const cv = mkCv(w, h); fOrig(cv.getContext('2d'), w, h); fCache[k] = cv; }
+    c.drawImage(fCache[k], 0, 0);
+  };
+  const pOrig = panelBg; let pCache = null;
+  panelBg = function () {
+    if (!pCache) { const cv = mkCv(320, 240); const q = cv.getContext('2d'); const save = bc; pOrig(); q.drawImage(cvBot, 0, 0); pCache = cv; return; }
+    bc.drawImage(pCache, 0, 0);
+  };
+})();
 function render() {
   if (ui.mode === 'title') { drawTitleTop(); drawTitleBottom(); return; }
   if (ui.mode === 'pick') { drawPickTop(); drawPickBottom(); return; }
