@@ -187,9 +187,17 @@ void ctx_arc(Ctx *c, float x, float y, float r, float a0, float a1, int ccw) { c
 /* ------------------------------------------------------------------ pixel verwerking */
 static inline unsigned div255(unsigned x) { return ((x + 128) * 257) >> 16; }
 static inline uint32_t blend(uint32_t d, unsigned sr, unsigned sg, unsigned sb, unsigned sa, int op) {
+  if (op == 0) {
+    if (sa > 255) sa = 255; if (sr > 255) sr = 255; if (sg > 255) sg = 255; if (sb > 255) sb = 255;
+    const uint32_t M = 0x00ff00ffu; unsigned inv = 255 - sa;
+    uint32_t rb = (d & M) * inv + 0x00800080u; rb = ((rb + ((rb >> 8) & M)) >> 8) & M;
+    uint32_t ag = ((d >> 8) & M) * inv + 0x00800080u; ag = ((ag + ((ag >> 8) & M)) >> 8) & M;
+    rb += sr | (sb << 16); ag += sg | (sa << 16);
+    rb |= ((rb >> 8) & 0x00010001u) * 255u; ag |= ((ag >> 8) & 0x00010001u) * 255u;
+    return (rb & M) | ((ag & M) << 8);
+  }
   unsigned dr = d & 255, dg = (d >> 8) & 255, db = (d >> 16) & 255, da = d >> 24;
   if (op == 0) {
-    unsigned inv = 255 - sa; dr = sr + div255(dr * inv); dg = sg + div255(dg * inv); db = sb + div255(db * inv); da = sa + div255(da * inv);
   } else if (op == 1) {
     unsigned inv = 255 - sa; dr = div255(sr * da) + div255(dr * inv); dg = div255(sg * da) + div255(dg * inv); db = div255(sb * da) + div255(db * inv);
   } else {
@@ -242,6 +250,20 @@ static void paint_row(Ctx *c, const Paint *p, int y, int x0, int n, const float 
   }
   if (p->kind == 2 && p->pat) {
     Surf *t = p->pat;
+    if (inv.b == 0 && inv.c == 0) {
+      float uy = inv.d * (y + .5f) + inv.f, itw = 1.f / t->w, ith = 1.f / t->h; float fy = floorf(uy);
+      int ty = (int)(fy - floorf(fy * ith) * t->h); if (ty >= t->h) ty -= t->h; if (ty < 0) ty += t->h;
+      const uint32_t *trow = t->px + (size_t)ty * t->w; int solid = al >= .999f && op == 0;
+      for (int i = 0; i < n; i++) {
+        float cv = cov[i]; int x = x0 + i; if (cv <= 0.002f || x < 0 || x >= s->w) continue;
+        float fl = floorf(inv.a * (x + .5f) + inv.e); int tx = (int)(fl - floorf(fl * itw) * t->w); if (tx >= t->w) tx -= t->w; if (tx < 0) tx += t->w;
+        uint32_t lc = trow[tx];
+        if (solid && cv >= .999f && (lc >> 24) == 255) { row[x] = lc; continue; }
+        float k = cv * al;
+        row[x] = blend(row[x], (unsigned)((lc & 255) * k + .5f), (unsigned)(((lc >> 8) & 255) * k + .5f), (unsigned)(((lc >> 16) & 255) * k + .5f), (unsigned)((lc >> 24) * k + .5f), op);
+      }
+      return;
+    }
     for (int i = 0; i < n; i++) {
       float cv = cov[i]; int x = x0 + i; if (cv <= 0.002f || x < 0 || x >= s->w) continue;
       float px = x + .5f, py = y + .5f, ux = inv.a * px + inv.c * py + inv.e, uy = inv.b * px + inv.d * py + inv.f;
@@ -473,7 +495,14 @@ void ctx_draw_image(Ctx *c, Surf *img, float sx, float sy, float sw, float sh, f
           row[i] = ((p & 0x00ff00ffu) + rb2) | ((p & 0xff00ff00u) + ag2); /* premultiplied: kanalen blijven <= 255 */
           continue;
         }
-        if (a == 0 && op != 2) continue;
+        if (op == 2) {
+          unsigned a8 = (a * al8 + 128) >> 8; if (a8 > 255) a8 = 255; uint32_t d = row[i];
+          if (a8 == 255) continue; if (a8 == 0) { row[i] = 0; continue; }
+          uint32_t rb2 = (d & 0x00ff00ffu) * a8 + 0x00800080u; rb2 = ((rb2 + ((rb2 >> 8) & 0x00ff00ffu)) >> 8) & 0x00ff00ffu;
+          uint32_t ag2 = ((d >> 8) & 0x00ff00ffu) * a8 + 0x00800080u; ag2 = (ag2 + ((ag2 >> 8) & 0x00ff00ffu)) & 0xff00ff00u;
+          row[i] = rb2 | ag2; continue;
+        }
+        if (a == 0) continue;
         unsigned r = p & 255, g = (p >> 8) & 255, b = (p >> 16) & 255;
         row[i] = blend(row[i], (r * al8 + 128) >> 8, (g * al8 + 128) >> 8, (b * al8 + 128) >> 8, (a * al8 + 128) >> 8, op);
       }
