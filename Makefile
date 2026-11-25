@@ -19,7 +19,7 @@ APP_AUTHOR  := Crownfall
 ICON        := icon.png
 
 ARCH   := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
-CFLAGS := -g -O2 -ffunction-sections -funsigned-char -w $(ARCH) $(INCLUDE) -D__3DS__ -DCONFIG_VERSION=\"2021-03-27\"
+CFLAGS := -g -O3 -fomit-frame-pointer -ffunction-sections -funsigned-char -w -Wno-incompatible-pointer-types $(ARCH) $(INCLUDE) -D__3DS__ -DCONFIG_VERSION=\"2021-03-27\"
 CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions
 ASFLAGS := -g $(ARCH)
 LDFLAGS = -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
