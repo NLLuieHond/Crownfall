@@ -198,6 +198,11 @@ static inline uint32_t blend(uint32_t d, unsigned sr, unsigned sg, unsigned sb, 
   if (dr > 255) dr = 255; if (dg > 255) dg = 255; if (db > 255) db = 255; if (da > 255) da = 255;
   return dr | (dg << 8) | (db << 16) | (da << 24);
 }
+static inline uint32_t lerp8(uint32_t a, uint32_t b, unsigned t) {
+  uint32_t rb = (((a & 0x00ff00ffu) * (256 - t) + (b & 0x00ff00ffu) * t) >> 8) & 0x00ff00ffu;
+  uint32_t ag = (((a >> 8) & 0x00ff00ffu) * (256 - t) + ((b >> 8) & 0x00ff00ffu) * t) & 0xff00ff00u;
+  return rb | ag;
+}
 static inline uint32_t sample_nearest(Surf *s, int x, int y) { return s->px[y * s->w + x]; }
 
 /* schrijf een rij met dekking cov[] (0..1) vanaf (x0,y), n pixels */
@@ -363,6 +368,28 @@ void ctx_fill_rect(Ctx *c, float x, float y, float w, float h) {
     if (n > g_cov_cap) { g_cov = (float *)realloc(g_cov, n * 4); g_cov_cap = n; }
     for (int yy = iy0; yy < iy1; yy++) {
       float cy = fminf((float)(yy + 1), y1) - fmaxf((float)yy, y0); if (cy <= 0) continue;
+      if (c->fill.kind == 0 && c->op == 0 && cy >= 0.999f) {
+        /* snelle weg voor effen kleur: binnenste deel in een keer, randen met dekking */
+        int xa = (int)ceilf(x0), xb = (int)floorf(x1); if (xa < ix0) xa = ix0; if (xb > ix1) xb = ix1;
+        if (xa < xb) {
+          float pa = c->fill.a / 255.f * c->alpha; unsigned sa = (unsigned)(255.f * pa + .5f);
+          uint32_t sp = (uint32_t)(c->fill.r * pa + .5f) | ((uint32_t)(c->fill.g * pa + .5f) << 8) | ((uint32_t)(c->fill.b * pa + .5f) << 16) | ((uint32_t)sa << 24);
+          uint32_t *row = c->surf->px + (size_t)yy * c->surf->w;
+          if (sa >= 255) { for (int xx = xa; xx < xb; xx++) row[xx] = sp; }
+          else if (sa > 0) {
+            uint32_t inv8 = 255 - sa, prb = sp & 0x00ff00ffu, pag = sp & 0xff00ff00u;
+            for (int xx = xa; xx < xb; xx++) {
+              uint32_t d = row[xx];
+              uint32_t rb2 = (d & 0x00ff00ffu) * inv8 + 0x00800080u; rb2 = ((rb2 + ((rb2 >> 8) & 0x00ff00ffu)) >> 8) & 0x00ff00ffu;
+              uint32_t ag2 = ((d >> 8) & 0x00ff00ffu) * inv8 + 0x00800080u; ag2 = (ag2 + ((ag2 >> 8) & 0x00ff00ffu)) & 0xff00ff00u;
+              row[xx] = (prb + rb2) | (pag + ag2);
+            }
+          }
+        }
+        for (int xx = ix0; xx < xa && xx < ix1; xx++) { float cx = fminf((float)(xx + 1), x1) - fmaxf((float)xx, x0); g_cov[0] = cx > 0 ? cx * cy : 0; paint_row(c, &c->fill, yy, xx, 1, g_cov); }
+        for (int xx = (xb > xa ? xb : xa); xx < ix1; xx++) { float cx = fminf((float)(xx + 1), x1) - fmaxf((float)xx, x0); g_cov[0] = cx > 0 ? cx * cy : 0; paint_row(c, &c->fill, yy, xx, 1, g_cov); }
+        continue;
+      }
       for (int xx = ix0; xx < ix1; xx++) { float cx = fminf((float)(xx + 1), x1) - fmaxf((float)xx, x0); g_cov[xx - ix0] = cx > 0 ? cx * cy : 0; }
       paint_row(c, &c->fill, yy, ix0, n, g_cov);
     }
@@ -397,6 +424,63 @@ void ctx_draw_image(Ctx *c, Surf *img, float sx, float sy, float sw, float sh, f
   if (ixmax < ixmin || iymax < iymin) return;
   float al = c->alpha; int op = c->op, smooth = c->smooth;
   float rx0 = dw > 0 ? dx : dx + dw, rx1 = dw > 0 ? dx + dw : dx, ry0 = dh > 0 ? dy : dy + dh, ry1 = dh > 0 ? dy + dh : dy;
+  if (M.b == 0 && M.c == 0) {
+    /* snelle weg: alleen verschuiven en schalen. Alle posities per kolom en per rij vooraf uitrekenen, daarna alleen geheeltallige rekenkunde. */
+    int nw = x1 - x0, nh = y1 - y0;
+    int *colA = (int *)malloc(sizeof(int) * (size_t)nw * 3), *rowA = (int *)malloc(sizeof(int) * (size_t)nh * 3);
+    if (!colA || !rowA) { free(colA); free(rowA); return; }
+    int *cxa = colA, *cxb = colA + nw, *cfx = colA + 2 * nw, *rya = rowA, *ryb = rowA + nh, *rfy = rowA + 2 * nh;
+    for (int i = 0; i < nw; i++) {
+      float ux = inv.a * (x0 + i + .5f) + inv.e; cfx[i] = 0; cxa[i] = -1;
+      if (ux < rx0 || ux >= rx1) continue;
+      float tx = (sx + (ux - dx) / dw * sw) * inv2; int ix, fx = 0;
+      if (smooth) { tx -= .5f; ix = (int)floorf(tx); fx = (int)((tx - ix) * 256.f); if (fx > 255) fx = 255; if (fx < 0) fx = 0; }
+      else ix = (int)floorf(tx);
+      int ia = ix < ixmin ? ixmin : ix > ixmax ? ixmax : ix, ib = ix + 1 < ixmin ? ixmin : ix + 1 > ixmax ? ixmax : ix + 1;
+      cxa[i] = ia; cxb[i] = ib; cfx[i] = fx;
+    }
+    for (int j = 0; j < nh; j++) {
+      float uy = inv.d * (y0 + j + .5f) + inv.f; rfy[j] = 0; rya[j] = -1;
+      if (uy < ry0 || uy >= ry1) continue;
+      float ty = (sy + (uy - dy) / dh * sh) * inv2; int iy, fy = 0;
+      if (smooth) { ty -= .5f; iy = (int)floorf(ty); fy = (int)((ty - iy) * 256.f); if (fy > 255) fy = 255; if (fy < 0) fy = 0; }
+      else iy = (int)floorf(ty);
+      rya[j] = iy < iymin ? iymin : iy > iymax ? iymax : iy; ryb[j] = iy + 1 < iymin ? iymin : iy + 1 > iymax ? iymax : iy + 1; rfy[j] = fy;
+    }
+    unsigned al8 = (unsigned)(al * 256.f + .5f); if (al8 > 256) al8 = 256;
+    for (int j = 0; j < nh; j++) {
+      if (rya[j] < 0) continue;
+      uint32_t *row = c->surf->px + (size_t)(y0 + j) * c->surf->w + x0;
+      const uint32_t *ra = m->px + (size_t)rya[j] * m->w, *rb = m->px + (size_t)ryb[j] * m->w; unsigned fy = (unsigned)rfy[j];
+      for (int i = 0; i < nw; i++) {
+        if (cxa[i] < 0) continue;
+        uint32_t p;
+        unsigned fx = (unsigned)cfx[i];
+        if (!fx && !fy) p = ra[cxa[i]];
+        else {
+          uint32_t t0 = ra[cxa[i]], t1 = fx ? ra[cxb[i]] : t0;
+          if (fx) t0 = lerp8(t0, t1, fx);
+          if (fy) { uint32_t u0 = rb[cxa[i]], u1 = fx ? rb[cxb[i]] : u0; if (fx) u0 = lerp8(u0, u1, fx); t0 = lerp8(t0, u0, fy); }
+          p = t0;
+        }
+        unsigned a = p >> 24;
+        if (op == 0 && al8 == 256) {
+          if (a == 255) { row[i] = p; continue; }
+          if (a == 0) continue;
+          uint32_t d = row[i], inv8 = 255 - a;
+          uint32_t rb2 = (d & 0x00ff00ffu) * inv8 + 0x00800080u; rb2 = ((rb2 + ((rb2 >> 8) & 0x00ff00ffu)) >> 8) & 0x00ff00ffu;
+          uint32_t ag2 = ((d >> 8) & 0x00ff00ffu) * inv8 + 0x00800080u; ag2 = (ag2 + ((ag2 >> 8) & 0x00ff00ffu)) & 0xff00ff00u;
+          row[i] = ((p & 0x00ff00ffu) + rb2) | ((p & 0xff00ff00u) + ag2); /* premultiplied: kanalen blijven <= 255 */
+          continue;
+        }
+        if (a == 0 && op != 2) continue;
+        unsigned r = p & 255, g = (p >> 8) & 255, b = (p >> 16) & 255;
+        row[i] = blend(row[i], (r * al8 + 128) >> 8, (g * al8 + 128) >> 8, (b * al8 + 128) >> 8, (a * al8 + 128) >> 8, op);
+      }
+    }
+    free(colA); free(rowA);
+    c->surf->gen++; return;
+  }
   for (int y = y0; y < y1; y++) {
     uint32_t *row = c->surf->px + (size_t)y * c->surf->w;
     for (int x = x0; x < x1; x++) {
@@ -417,7 +501,7 @@ void ctx_draw_image(Ctx *c, Surf *img, float sx, float sy, float sw, float sh, f
         int ix = (int)floorf(tx), iy = (int)floorf(ty); ix = ix < ixmin ? ixmin : ix > ixmax ? ixmax : ix; iy = iy < iymin ? iymin : iy > iymax ? iymax : iy;
         uint32_t p = m->px[iy * m->w + ix]; r = p & 255; g = (p >> 8) & 255; b = (p >> 16) & 255; a = p >> 24;
       }
-      if (a < 0.5f) continue;
+      if (a < 0.5f && op != 2) continue;
       if (al >= .999f && a >= 254.5f && op == 0) { row[x] = (uint32_t)clamp8(r) | ((uint32_t)clamp8(g) << 8) | ((uint32_t)clamp8(b) << 16) | 0xff000000u; continue; }
       row[x] = blend(row[x], (unsigned)(r * al + .5f), (unsigned)(g * al + .5f), (unsigned)(b * al + .5f), (unsigned)(a * al + .5f), op);
     }
