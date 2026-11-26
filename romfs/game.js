@@ -1120,7 +1120,7 @@ function loadGame() {
 }
 function newGame() {
   try { localStorage.removeItem(SAVEKEY); } catch (e) {}
-  Rules.init(); Object.assign(ui, { mode: 'pick', pstep: 'fac', fac: 'good', pick: 0, panel: 'castle', tab: 'units', path: null, cam: null, walking: false, cnf: false }); render();
+  Object.assign(ui, { mode: 'pick', pstep: 'fac', fac: 'good', pick: 0, panel: 'castle', tab: 'units', path: null, cam: null, walking: false, cnf: false }); render();
 }
 const _r0 = render;
 render = function () { _r0(); const t = Date.now(); if (t - lastSave > 1500) { lastSave = t; saveGame(); } };
@@ -1895,7 +1895,6 @@ if (HAS_AUDIO) {
   drawTitleBottom = function () { _dtb(); button('Muziek: ' + (MUS.on ? 'aan' : 'uit'), 50, ui.hasSave ? 154 : 126, 220, 28, () => toggleMusic(), true); };
 }
 
-Rules.init();
 ui.hasSave = hasSave(); ui.mode = 'title';
 render();
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
