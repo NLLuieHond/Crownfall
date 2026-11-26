@@ -29,21 +29,33 @@ jobs:
           PY
       - name: Bouw .3dsx
         run: make
-      - name: Bouw .cia (optioneel)
+      - name: Bouw .cia
         continue-on-error: true
+        shell: bash
         run: |
+          set -o pipefail
+          {
+          set -x
           apt-get update && apt-get install -y curl unzip jq
-          URL=$(curl -s https://api.github.com/repos/3DSGuy/Project_CTR/releases/latest | jq -r '.assets[] | select(.name|test("ubuntu_x86_64")) | .browser_download_url' | head -1)
-          curl -L "$URL" -o makerom.zip && unzip -o makerom.zip && chmod +x makerom
-          curl -L https://github.com/carstene1ns/3ds-bannertool/releases/latest/download/bannertool.zip -o bt.zip || true
-          unzip -o bt.zip || true
-          BT=$(find . -name bannertool -type f | grep -i linux | head -1); chmod +x "$BT"
+          rel() { curl -fsSL "https://api.github.com/repos/$1/releases/latest"; }
+          MR=$(rel 3DSGuy/Project_CTR | jq -r '.assets[].browser_download_url' | grep -i ubuntu | grep -i x86_64 | head -1)
+          curl -fsSL "$MR" -o makerom.zip && unzip -o makerom.zip && chmod +x makerom
+          BU=$(rel carstene1ns/3ds-bannertool | jq -r '.assets[].browser_download_url' | grep -i zip | head -1)
+          curl -fsSL "$BU" -o bt.zip && unzip -o bt.zip
+          BT=$(find . -type f -name bannertool | grep -i linux | head -1)
+          if [ -z "$BT" ]; then BT=$(find . -type f -name bannertool | head -1); fi
+          chmod +x "$BT"
           "$BT" makebanner -i banner.png -a silence.wav -o banner.bnr
           "$BT" makesmdh -s "Crownfall" -l "Strategiespel" -p "Crownfall" -i icon.png -o icon.icn
           ./makerom -f cia -o crownfall.cia -elf crownfall.elf -rsf crownfall.rsf -icon icon.icn -banner banner.bnr -exefslogo -target t -DAPP_ROMFS=romfs
+          ls -la crownfall.cia
+          } 2>&1 | tee cia.log
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Crownfall-3DS
           path: |
             crownfall.3dsx
             crownfall.cia
+            cia.log
+          if-no-files-found: warn
