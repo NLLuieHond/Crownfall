@@ -13,10 +13,11 @@ static int romfs_ok = 0;
 
 /* ===== Muziek: IMA-ADPCM (romfs/music.wav) afspelen via ndsp ===== */
 uint8_t *plat_read_asset(const char *name, size_t *len);
-#define MBUFS 8
+#define MBUFS 16
 static uint8_t *mus_data = 0; static size_t mus_len = 0, mus_start = 0, mus_off = 0;
 static int mus_rate = 32000, mus_bs = 2048, mus_spb = 0, mus_n = 0, mus_blk = 0, mus_ok = 0, mus_on = 1, mus_next = 0;
 static ndspWaveBuf mus_wb[MBUFS]; static s16 *mus_pcm = 0;
+static Thread mus_th = 0; static volatile int mus_run = 0;
 static const int ima_step[89] = {7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,73,80,88,97,107,118,130,143,157,173,190,209,230,253,279,307,337,371,408,449,494,544,598,658,724,796,876,963,1060,1166,1282,1411,1552,1707,1878,2066,2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,7845,8630,9493,10442,11487,12635,13899,15289,16818,18500,20350,22385,24623,27086,29794,32767};
 static const int ima_idx[16] = {-1,-1,-1,-1,2,4,6,8,-1,-1,-1,-1,2,4,6,8};
 static int ima_dec(int nib, int *pred, int *idx) {
@@ -65,6 +66,9 @@ static void mus_fill(void) {
     mus_next = (mus_next + 1) % MBUFS;
   }
 }
+static void mus_thread(void *arg) {
+  while (mus_run) { mus_fill(); svcSleepThread(20000000LL); } /* elke 20 ms bijvullen, ook als het spel even vastzit */
+}
 static void mus_init(void) {
   mus_data = plat_read_asset("music.wav", &mus_len); if (!mus_data || !mus_parse()) return;
   if (R_FAILED(ndspInit())) return;  /* geen DSP-firmware: dan geen muziek */
@@ -73,10 +77,12 @@ static void mus_init(void) {
   ndspChnSetRate(0, (float)mus_rate); ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16);
   float mix[12]; memset(mix, 0, sizeof mix); mix[0] = mix[1] = 0.55f; ndspChnSetMix(0, mix);
   memset(mus_wb, 0, sizeof mus_wb); mus_off = mus_start; mus_blk = 0; mus_next = 0; mus_ok = 1; mus_fill();
+  svcSetThreadPriority(CUR_THREAD_HANDLE, 0x30); /* hoofddraad vaste prioriteit; de muziekdraad (0x28) mag dan altijd voorrang nemen */
+  mus_run = 1; mus_th = threadCreate(mus_thread, 0, 32 * 1024, 0x28, -1, false); if (!mus_th) mus_run = 0;
 }
-static void mus_update(void) { if (mus_ok) mus_fill(); }
+static void mus_update(void) { if (mus_ok && !mus_run) mus_fill(); } /* alleen zonder aparte draad */
 static void mus_toggle(void) { if (!mus_ok) return; mus_on = !mus_on; ndspChnSetPaused(0, !mus_on); }
-static void mus_exit(void) { if (!mus_ok) return; ndspChnWaveBufClear(0); ndspExit(); linearFree(mus_pcm); mus_ok = 0; }
+static void mus_exit(void) { if (!mus_ok) return; if (mus_th) { mus_run = 0; threadJoin(mus_th, U64_MAX); threadFree(mus_th); mus_th = 0; } ndspChnWaveBufClear(0); ndspExit(); linearFree(mus_pcm); mus_ok = 0; }
 
 
 void plat_init(void) {
