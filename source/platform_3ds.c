@@ -11,6 +11,74 @@ u32 __stacksize__ = 2 * 1024 * 1024; /* grote stack voor JavaScript */
 #define SAVEDIR "sdmc:/3ds/crownfall"
 static int romfs_ok = 0;
 
+/* ===== Muziek: IMA-ADPCM (romfs/music.wav) afspelen via ndsp ===== */
+uint8_t *plat_read_asset(const char *name, size_t *len);
+#define MBUFS 8
+static uint8_t *mus_data = 0; static size_t mus_len = 0, mus_start = 0, mus_off = 0;
+static int mus_rate = 32000, mus_bs = 2048, mus_spb = 0, mus_n = 0, mus_blk = 0, mus_ok = 0, mus_on = 1, mus_next = 0;
+static ndspWaveBuf mus_wb[MBUFS]; static s16 *mus_pcm = 0;
+static const int ima_step[89] = {7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,73,80,88,97,107,118,130,143,157,173,190,209,230,253,279,307,337,371,408,449,494,544,598,658,724,796,876,963,1060,1166,1282,1411,1552,1707,1878,2066,2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,7845,8630,9493,10442,11487,12635,13899,15289,16818,18500,20350,22385,24623,27086,29794,32767};
+static const int ima_idx[16] = {-1,-1,-1,-1,2,4,6,8,-1,-1,-1,-1,2,4,6,8};
+static int ima_dec(int nib, int *pred, int *idx) {
+  int step = ima_step[*idx], diff = step >> 3;
+  if (nib & 1) diff += step >> 2; if (nib & 2) diff += step >> 1; if (nib & 4) diff += step; if (nib & 8) diff = -diff;
+  int p = *pred + diff; if (p > 32767) p = 32767; if (p < -32768) p = -32768; *pred = p;
+  int i = *idx + ima_idx[nib]; if (i < 0) i = 0; if (i > 88) i = 88; *idx = i; return p;
+}
+static void ima_block(const uint8_t *b, s16 *out) { /* stereo, 1 blok -> mus_spb frames */
+  int pred[2], idx[2];
+  for (int c = 0; c < 2; c++) { pred[c] = (s16)(b[c * 4] | (b[c * 4 + 1] << 8)); idx[c] = b[c * 4 + 2]; if (idx[c] > 88) idx[c] = 88; out[c] = (s16)pred[c]; }
+  const uint8_t *p = b + 8; s16 *o = out + 2; int groups = (mus_bs - 8) / 8;
+  for (int g = 0; g < groups; g++)
+    for (int c = 0; c < 2; c++)
+      for (int i = 0; i < 4; i++) {
+        uint8_t by = *p++;
+        o[(g * 8 + i * 2) * 2 + c] = (s16)ima_dec(by & 15, &pred[c], &idx[c]);
+        o[(g * 8 + i * 2 + 1) * 2 + c] = (s16)ima_dec(by >> 4, &pred[c], &idx[c]);
+      }
+}
+static uint32_t rd32(const uint8_t *p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24); }
+static uint16_t rd16(const uint8_t *p) { return p[0] | (p[1] << 8); }
+static int mus_parse(void) {
+  if (mus_len < 44 || memcmp(mus_data, "RIFF", 4) || memcmp(mus_data + 8, "WAVE", 4)) return 0;
+  size_t o = 12; int ch = 0; mus_start = 0; size_t dsz = 0;
+  while (o + 8 <= mus_len) {
+    uint32_t sz = rd32(mus_data + o + 4);
+    if (!memcmp(mus_data + o, "fmt ", 4)) { ch = rd16(mus_data + o + 10); mus_rate = rd32(mus_data + o + 12); mus_bs = rd16(mus_data + o + 20); }
+    else if (!memcmp(mus_data + o, "data", 4)) { mus_start = o + 8; dsz = sz; break; }
+    o += 8 + sz + (sz & 1);
+  }
+  if (ch != 2 || !mus_start || mus_bs < 64 || mus_bs > 8192 || (mus_bs & 7)) return 0;
+  if (mus_start + dsz > mus_len) dsz = mus_len - mus_start;
+  mus_n = (int)(dsz / mus_bs); mus_spb = mus_bs - 7; /* frames per blok */
+  return mus_n > 0;
+}
+static void mus_fill(void) {
+  while (1) {
+    ndspWaveBuf *w = &mus_wb[mus_next];
+    if (w->status != NDSP_WBUF_FREE && w->status != NDSP_WBUF_DONE) break;
+    s16 *pcm = mus_pcm + (size_t)mus_next * mus_spb * 2;
+    ima_block(mus_data + mus_off, pcm);
+    mus_blk++; mus_off += mus_bs; if (mus_blk >= mus_n) { mus_blk = 0; mus_off = mus_start; }
+    DSP_FlushDataCache(pcm, (u32)mus_spb * 4);
+    w->data_vaddr = pcm; w->nsamples = mus_spb; ndspChnWaveBufAdd(0, w);
+    mus_next = (mus_next + 1) % MBUFS;
+  }
+}
+static void mus_init(void) {
+  mus_data = plat_read_asset("music.wav", &mus_len); if (!mus_data || !mus_parse()) return;
+  if (R_FAILED(ndspInit())) return;  /* geen DSP-firmware: dan geen muziek */
+  mus_pcm = (s16 *)linearAlloc((size_t)MBUFS * mus_spb * 4); if (!mus_pcm) { ndspExit(); return; }
+  ndspSetOutputMode(NDSP_OUTPUT_STEREO); ndspChnReset(0); ndspChnSetInterp(0, NDSP_INTERP_LINEAR);
+  ndspChnSetRate(0, (float)mus_rate); ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16);
+  float mix[12]; memset(mix, 0, sizeof mix); mix[0] = mix[1] = 0.55f; ndspChnSetMix(0, mix);
+  memset(mus_wb, 0, sizeof mus_wb); mus_off = mus_start; mus_blk = 0; mus_next = 0; mus_ok = 1; mus_fill();
+}
+static void mus_update(void) { if (mus_ok) mus_fill(); }
+static void mus_toggle(void) { if (!mus_ok) return; mus_on = !mus_on; ndspChnSetPaused(0, !mus_on); }
+static void mus_exit(void) { if (!mus_ok) return; ndspChnWaveBufClear(0); ndspExit(); linearFree(mus_pcm); mus_ok = 0; }
+
+
 void plat_init(void) {
   gfxInitDefault();
   gfxSetDoubleBuffering(GFX_TOP, false);
@@ -20,8 +88,9 @@ void plat_init(void) {
   osSetSpeedupEnable(true); /* New 3DS: snelle modus */
   romfs_ok = (romfsInit() == 0);
   mkdir("sdmc:/3ds", 0777); mkdir(SAVEDIR, 0777);
+  mus_init();
 }
-void plat_shutdown(void) { if (romfs_ok) romfsExit(); gfxExit(); }
+void plat_shutdown(void) { mus_exit(); if (romfs_ok) romfsExit(); gfxExit(); }
 extern int g_quit_flag;
 int plat_running(void) { return aptMainLoop() && !g_quit_flag; }
 void plat_quit(void) { g_quit_flag = 1; }
@@ -30,6 +99,7 @@ int g_quit_flag = 0;
 void plat_poll(Input *in) {
   hidScanInput();
   u32 d = hidKeysDown(), h = hidKeysHeld(), u = hidKeysUp(); touchPosition t; hidTouchRead(&t);
+  if (d & KEY_SELECT) mus_toggle(); /* SELECT: muziek aan/uit */
   in->down = d & 0xFFF; in->held = h & 0xFFF; in->up = u & 0xFFF;
   in->touching = (h & KEY_TOUCH) ? 1 : 0; in->tx = t.px; in->ty = t.py;
 }
@@ -53,7 +123,7 @@ void plat_present(Surf *top, Surf *bot, int tc, int bc) {
   if (bc) blit(GFX_BOTTOM, bot);
   gfxFlushBuffers(); gfxSwapBuffers();
 }
-void plat_wait_frame(void) { gspWaitForVBlank(); }
+void plat_wait_frame(void) { mus_update(); gspWaitForVBlank(); }
 double plat_now_ms(void) { return (double)osGetTime(); }
 
 static uint8_t *readfile(const char *path, size_t *len) {
