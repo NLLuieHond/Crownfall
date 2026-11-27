@@ -32,6 +32,8 @@ uint8_t *plat_read_asset(const char *name, size_t *len);        /* uit romfs, me
 uint8_t *plat_read_save(const char *name, size_t *len);         /* uit opslagmap */
 int plat_write_save(const char *name, const void *data, size_t len);
 void plat_remove_save(const char *name);
+void plat_music(int id);                                       /* 0 = spelmuziek, 1 = gevechtsmuziek */
+void plat_sfx(int id);                                         /* korte geluidseffecten (romfs/sfx.bin) */
 void plat_log(const char *msg);
 void plat_fatal(const char *msg);
 void plat_quit(void);
