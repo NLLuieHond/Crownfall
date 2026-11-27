@@ -71,6 +71,7 @@ static JSValue js_fileWrite(JSContext *ctx, JSValueConst t, int argc, JSValueCon
 static JSValue js_fileRemove(JSContext *ctx, JSValueConst t, int argc, JSValueConst *argv) { const char *name = JS_ToCString(ctx, argv[0]); plat_remove_save(name); JS_FreeCString(ctx, name); return JS_UNDEFINED; }
 static JSValue js_music(JSContext *ctx, JSValueConst t, int argc, JSValueConst *argv) { int32_t id = 0; if (argc > 0) JS_ToInt32(ctx, &id, argv[0]); plat_music(id); return JS_UNDEFINED; }
 static JSValue js_sfx(JSContext *ctx, JSValueConst t, int argc, JSValueConst *argv) { int32_t id = -1; if (argc > 0) JS_ToInt32(ctx, &id, argv[0]); plat_sfx(id); return JS_UNDEFINED; }
+static JSValue js_vol(JSContext *ctx, JSValueConst t, int argc, JSValueConst *argv) { int32_t k = 0, l = 2; if (argc > 1) { JS_ToInt32(ctx, &k, argv[0]); JS_ToInt32(ctx, &l, argv[1]); } plat_volume(k, l); return JS_UNDEFINED; }
 static JSValue js_now(JSContext *ctx, JSValueConst t, int argc, JSValueConst *argv) { return JS_NewFloat64(ctx, plat_now_ms()); }
 static JSValue js_log(JSContext *ctx, JSValueConst t, int argc, JSValueConst *argv) { const char *s = JS_ToCString(ctx, argv[0]); if (s) { plat_log(s); JS_FreeCString(ctx, s); } return JS_UNDEFINED; }
 static JSValue js_quit(JSContext *ctx, JSValueConst t, int argc, JSValueConst *argv) { plat_quit(); return JS_UNDEFINED; }
@@ -219,7 +220,7 @@ int game_run(void) {
 #define REG(n, f, a) JS_SetPropertyStr(ctx, G, n, JS_NewCFunction(ctx, f, n, a))
   REG("__surfNew", js_surfNew, 2); REG("__surfResize", js_surfResize, 3); REG("__surfW", js_surfW, 1); REG("__surfH", js_surfH, 1); REG("__decode", js_decode, 1);
   REG("__loadFont", js_loadFont, 2); REG("__fileRead", js_fileRead, 1); REG("__fileWrite", js_fileWrite, 2); REG("__fileRemove", js_fileRemove, 1);
-  REG("__music", js_music, 1); REG("__sfx", js_sfx, 1); REG("__now", js_now, 0); REG("__log", js_log, 1); REG("__quit", js_quit, 0); REG("__bindScreens", js_bindScreens, 2); REG("__newCtx", js_newCtx, 1); REG("__poll", js_poll, 0);
+  REG("__music", js_music, 1); REG("__sfx", js_sfx, 1); REG("__vol", js_vol, 2); REG("__now", js_now, 0); REG("__log", js_log, 1); REG("__quit", js_quit, 0); REG("__bindScreens", js_bindScreens, 2); REG("__newCtx", js_newCtx, 1); REG("__poll", js_poll, 0);
   JS_FreeValue(ctx, G);
 
   if (!eval_asset(ctx, "prelude.js")) return 1;

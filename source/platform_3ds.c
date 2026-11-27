@@ -86,6 +86,7 @@ static void mus_thread(void *arg) {
 }
 /* ===== Geluidseffecten: romfs/sfx.bin (16-bit mono) op ndsp-kanalen 1..4 ===== */
 #define SCH 4
+static float g_mus = 0.55f, g_sfx = 0.9f; /* volume van muziek en effecten (instelbaar in het spel) */
 static s16 *sfx_pcm = 0; static uint32_t sfx_n = 0, sfx_rate = 22050, *sfx_tab = 0; static int sfx_ok = 0, sfx_next = 0;
 static ndspWaveBuf sfx_wb[SCH];
 static void sfx_init(void) {
@@ -106,7 +107,7 @@ static void sfx_init(void) {
   float mix[12];
   for (int c = 0; c < SCH; c++) {
     ndspChnReset(1 + c); ndspChnSetInterp(1 + c, NDSP_INTERP_LINEAR); ndspChnSetRate(1 + c, (float)sfx_rate); ndspChnSetFormat(1 + c, NDSP_FORMAT_MONO_PCM16);
-    memset(mix, 0, sizeof mix); mix[0] = mix[1] = 0.9f; ndspChnSetMix(1 + c, mix);
+    memset(mix, 0, sizeof mix); mix[0] = mix[1] = g_sfx; ndspChnSetMix(1 + c, mix);
   }
   memset(sfx_wb, 0, sizeof sfx_wb); sfx_ok = 1;
 }
@@ -129,7 +130,7 @@ static void mus_init(void) {
   mus_pcm = (s16 *)linearAlloc((size_t)MBUFS * mus_spb * 4); if (!mus_pcm) { ndspExit(); return; }
   ndspSetOutputMode(NDSP_OUTPUT_STEREO); ndspChnReset(0); ndspChnSetInterp(0, NDSP_INTERP_LINEAR);
   ndspChnSetRate(0, (float)mus_rate); ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16);
-  float mix[12]; memset(mix, 0, sizeof mix); mix[0] = mix[1] = 0.55f; ndspChnSetMix(0, mix);
+  float mix[12]; memset(mix, 0, sizeof mix); mix[0] = mix[1] = g_mus; ndspChnSetMix(0, mix);
   memset(mus_wb, 0, sizeof mus_wb); mus_off = mus_start; mus_blk = 0; mus_next = 0; mus_ok = 1;
   memset(mus_sv, 0, sizeof mus_sv); trk_save(0); mus_cur = 0; mus_want = 0;
   { /* gevechtsmuziek (optioneel): moet hetzelfde blokformaat hebben als music.wav */
@@ -144,6 +145,12 @@ static void mus_init(void) {
   mus_run = 1; mus_th = threadCreate(mus_thread, 0, 32 * 1024, 0x28, -1, false); if (!mus_th) mus_run = 0;
 }
 void plat_music(int id) { mus_want = id ? 1 : 0; }
+void plat_volume(int kind, int level) { /* kind 0 = muziek, 1 = effecten; level 0 (uit) .. 3 (hard) */
+  static const float MV[4] = { 0.f, 0.25f, 0.55f, 0.85f }, SV[4] = { 0.f, 0.4f, 0.9f, 1.0f };
+  float mix[12]; memset(mix, 0, sizeof mix); if (level < 0) level = 0; if (level > 3) level = 3;
+  if (kind == 0) { g_mus = MV[level]; if (mus_ok) { mix[0] = mix[1] = g_mus; ndspChnSetMix(0, mix); } }
+  else { g_sfx = SV[level]; if (sfx_ok) { mix[0] = mix[1] = g_sfx; for (int c = 0; c < SCH; c++) ndspChnSetMix(1 + c, mix); } }
+}
 static void mus_update(void) { if (mus_ok && !mus_run) mus_fill(); } /* alleen zonder aparte draad */
 static void mus_toggle(void) { if (!mus_ok) return; mus_on = !mus_on; ndspChnSetPaused(0, !mus_on); }
 static void mus_exit(void) { if (!mus_ok) return; sfx_exit(); if (mus_th) { mus_run = 0; threadJoin(mus_th, U64_MAX); threadFree(mus_th); mus_th = 0; } ndspChnWaveBufClear(0); ndspExit(); linearFree(mus_pcm); mus_ok = 0; }

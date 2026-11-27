@@ -34,6 +34,7 @@ int plat_write_save(const char *name, const void *data, size_t len);
 void plat_remove_save(const char *name);
 void plat_music(int id);                                       /* 0 = spelmuziek, 1 = gevechtsmuziek */
 void plat_sfx(int id);                                         /* korte geluidseffecten (romfs/sfx.bin) */
+void plat_volume(int kind, int level);                            /* kind 0 = muziek, 1 = effecten; level 0 (uit) t/m 3 (hard) */
 void plat_log(const char *msg);
 void plat_fatal(const char *msg);
 void plat_quit(void);
