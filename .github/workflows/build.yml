@@ -58,6 +58,16 @@ jobs:
           ./makerom -f cia -o crownfall.cia -elf crownfall.elf -rsf crownfall.rsf -icon icon.icn -banner banner.bnr -exefslogo -target t -DAPP_ROMFS=romfs
           ls -la crownfall.cia
           } 2>&1 | tee cia.log
+      - name: Zoek crash-adressen op
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          {
+          for a in 0x1B1DF8 0x1B505C 0x1B23DC 0x0F63F4 0x1EA15C 0x1E6240; do echo "== $a"; arm-none-eabi-addr2line -f -C -e crownfall.elf $a; done
+          echo "== geheugen"; arm-none-eabi-size crownfall.elf
+          } > crash.txt 2>&1
+          cat crash.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -66,4 +76,5 @@ jobs:
             crownfall.3dsx
             crownfall.cia
             cia.log
+            crash.txt
           if-no-files-found: warn
