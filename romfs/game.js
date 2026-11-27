@@ -724,7 +724,7 @@ function walk() {
     if (ui.mode === 'battle') { ui.walking = false; ui.path = null; return; }
     if (h.x !== n[0] || h.y !== n[1]) { ui.path = null; stop(); return; }
     P.tiles.shift(); if (!P.tiles.length) ui.path = null;
-    sfx((STEPN++ & 1) ? 'step2' : 'step');
+    if ((MAPSTEP++ & 1) === 0) sfx((STEPN++ & 1) ? 'step2' : 'step'); /* om de andere tegel: rustiger tempo */
     if (Rules.onCastle()) { ui.path = null; stop(); return; }
     render(); setTimeout(tick, 110);
   };
@@ -1973,11 +1973,11 @@ function fxStep() {
   else { FX.end = 0; render(); const b = Battle.b; if (b.done && !b.snd) { b.snd = 1; sfx(b.done === 1 ? 'win' : 'lose'); } }
 }
 const STY = { spear: ['slash', 'slash'], bow: ['arrow', 'bow'], knight: ['bash', 'bash'], goblin: ['claw', 'claw'], wolf: ['bite', 'claw'], direwolf: ['bite', 'claw'], ogre: ['smash', 'smash'], warlord: ['smash', 'smash'], gobarcher: ['arrow', 'bow'] };
-let STEPN = 0;
+let STEPN = 0, MAPSTEP = 0;
 function fxMove(u, a, b) {
   const d = Math.max(1, hdist({ x: a[0], y: a[1] }, { x: b[0], y: b[1] })), T = fxT(), dur = Math.min(560, 110 * d + 50);
   fxAdd({ k: 'move', u, a, b }, T, dur);
-  for (let i = 0; i < Math.min(d, 4); i++) fxSnd((STEPN++ & 1) ? 'step2' : 'step', T + i * (dur / Math.min(d, 4)));
+  const ns = Math.min(Math.ceil(d / 2), 2); for (let i = 0; i < ns; i++) fxSnd((STEPN++ & 1) ? 'step2' : 'step', T + i * (dur / ns)); /* minder, rustiger stappen */
 }
 function fxCheckMove(u) {
   if (u._px == null) { u._px = u.x; u._py = u.y; return; }
