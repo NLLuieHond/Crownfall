@@ -18,6 +18,11 @@ static uint8_t *mus_data = 0; static size_t mus_len = 0, mus_start = 0, mus_off 
 static int mus_rate = 32000, mus_bs = 2048, mus_spb = 0, mus_n = 0, mus_blk = 0, mus_ok = 0, mus_on = 1, mus_next = 0;
 static ndspWaveBuf mus_wb[MBUFS]; static s16 *mus_pcm = 0;
 static Thread mus_th = 0; static volatile int mus_run = 0;
+/* Twee nummers: 0 = spelmuziek (music.wav), 1 = gevechtsmuziek (battle.wav). De plek van het nummer dat pauzeert blijft bewaard. */
+typedef struct { uint8_t *data; size_t len, start, off; int rate, bs, spb, n, blk; } Trk;
+static Trk mus_sv[2]; static int mus_cur = 0; static volatile int mus_want = 0;
+static void trk_save(int i) { Trk *t = &mus_sv[i]; t->data = mus_data; t->len = mus_len; t->start = mus_start; t->off = mus_off; t->rate = mus_rate; t->bs = mus_bs; t->spb = mus_spb; t->n = mus_n; t->blk = mus_blk; }
+static void trk_load(int i) { Trk *t = &mus_sv[i]; mus_data = t->data; mus_len = t->len; mus_start = t->start; mus_off = t->off; mus_rate = t->rate; mus_bs = t->bs; mus_spb = t->spb; mus_n = t->n; mus_blk = t->blk; }
 static const int ima_step[89] = {7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,73,80,88,97,107,118,130,143,157,173,190,209,230,253,279,307,337,371,408,449,494,544,598,658,724,796,876,963,1060,1166,1282,1411,1552,1707,1878,2066,2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,7845,8630,9493,10442,11487,12635,13899,15289,16818,18500,20350,22385,24623,27086,29794,32767};
 static const int ima_idx[16] = {-1,-1,-1,-1,2,4,6,8,-1,-1,-1,-1,2,4,6,8};
 static int ima_dec(int nib, int *pred, int *idx) {
@@ -54,7 +59,17 @@ static int mus_parse(void) {
   mus_n = (int)(dsz / mus_bs); mus_spb = mus_bs - 7; /* frames per blok */
   return mus_n > 0;
 }
+static void mus_switch(void) {
+  int want = mus_want;
+  if (want == mus_cur || !mus_sv[want].data) return;
+  int q = 0; for (int i = 0; i < MBUFS; i++) if (mus_wb[i].status == NDSP_WBUF_QUEUED || mus_wb[i].status == NDSP_WBUF_PLAYING) q++;
+  mus_blk -= q; while (mus_blk < 0) mus_blk += mus_n; mus_off = mus_start + (size_t)mus_blk * mus_bs; /* terug naar wat echt gespeeld was */
+  trk_save(mus_cur); trk_load(want); mus_cur = want;
+  if (want == 1) { mus_blk = 0; mus_off = mus_start; } /* gevechtsmuziek begint steeds opnieuw */
+  ndspChnWaveBufClear(0); memset(mus_wb, 0, sizeof mus_wb); mus_next = 0;
+}
 static void mus_fill(void) {
+  mus_switch();
   while (1) {
     ndspWaveBuf *w = &mus_wb[mus_next];
     if (w->status != NDSP_WBUF_FREE && w->status != NDSP_WBUF_DONE) break;
@@ -69,6 +84,45 @@ static void mus_fill(void) {
 static void mus_thread(void *arg) {
   while (mus_run) { mus_fill(); svcSleepThread(20000000LL); } /* elke 20 ms bijvullen, ook als het spel even vastzit */
 }
+/* ===== Geluidseffecten: romfs/sfx.bin (16-bit mono) op ndsp-kanalen 1..4 ===== */
+#define SCH 4
+static s16 *sfx_pcm = 0; static uint32_t sfx_n = 0, sfx_rate = 22050, *sfx_tab = 0; static int sfx_ok = 0, sfx_next = 0;
+static ndspWaveBuf sfx_wb[SCH];
+static void sfx_init(void) {
+  if (!mus_ok) return; /* geen DSP: dan ook geen effecten */
+  size_t len = 0; uint8_t *d = plat_read_asset("sfx.bin", &len); if (!d) return;
+  if (len < 12 || memcmp(d, "SFX1", 4)) { free(d); return; }
+  uint32_t rate = rd32(d + 4), n = rd32(d + 8);
+  if (n == 0 || n > 64 || len < 12 + (size_t)n * 8) { free(d); return; }
+  size_t dataoff = 12 + (size_t)n * 8, bytes = len - dataoff;
+  sfx_pcm = (s16 *)linearAlloc(bytes + 64); sfx_tab = (uint32_t *)malloc((size_t)n * 8);
+  if (!sfx_pcm || !sfx_tab) { if (sfx_pcm) linearFree(sfx_pcm); if (sfx_tab) free(sfx_tab); sfx_pcm = 0; sfx_tab = 0; free(d); return; }
+  memcpy(sfx_pcm, d + dataoff, bytes); DSP_FlushDataCache(sfx_pcm, (u32)bytes);
+  for (uint32_t i = 0; i < n; i++) {
+    sfx_tab[i * 2] = rd32(d + 12 + i * 8); sfx_tab[i * 2 + 1] = rd32(d + 12 + i * 8 + 4);
+    if (((size_t)sfx_tab[i * 2] + sfx_tab[i * 2 + 1]) * 2 > bytes) sfx_tab[i * 2 + 1] = 0;
+  }
+  free(d); sfx_n = n; sfx_rate = rate ? rate : 22050;
+  float mix[12];
+  for (int c = 0; c < SCH; c++) {
+    ndspChnReset(1 + c); ndspChnSetInterp(1 + c, NDSP_INTERP_LINEAR); ndspChnSetRate(1 + c, (float)sfx_rate); ndspChnSetFormat(1 + c, NDSP_FORMAT_MONO_PCM16);
+    memset(mix, 0, sizeof mix); mix[0] = mix[1] = 0.9f; ndspChnSetMix(1 + c, mix);
+  }
+  memset(sfx_wb, 0, sizeof sfx_wb); sfx_ok = 1;
+}
+static void sfx_exit(void) {
+  if (!sfx_ok) return;
+  sfx_ok = 0;
+  for (int c = 0; c < SCH; c++) ndspChnWaveBufClear(1 + c);
+}
+void plat_sfx(int id) {
+  if (!sfx_ok || id < 0 || (uint32_t)id >= sfx_n || !sfx_tab[id * 2 + 1]) return;
+  int c = sfx_next; sfx_next = (sfx_next + 1) % SCH;
+  ndspChnWaveBufClear(1 + c);
+  ndspWaveBuf *w = &sfx_wb[c]; memset(w, 0, sizeof *w);
+  w->data_vaddr = sfx_pcm + sfx_tab[id * 2]; w->nsamples = sfx_tab[id * 2 + 1]; w->looping = false;
+  ndspChnWaveBufAdd(1 + c, w);
+}
 static void mus_init(void) {
   mus_data = plat_read_asset("music.wav", &mus_len); if (!mus_data || !mus_parse()) return;
   if (R_FAILED(ndspInit())) return;  /* geen DSP-firmware: dan geen muziek */
@@ -76,13 +130,23 @@ static void mus_init(void) {
   ndspSetOutputMode(NDSP_OUTPUT_STEREO); ndspChnReset(0); ndspChnSetInterp(0, NDSP_INTERP_LINEAR);
   ndspChnSetRate(0, (float)mus_rate); ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16);
   float mix[12]; memset(mix, 0, sizeof mix); mix[0] = mix[1] = 0.55f; ndspChnSetMix(0, mix);
-  memset(mus_wb, 0, sizeof mus_wb); mus_off = mus_start; mus_blk = 0; mus_next = 0; mus_ok = 1; mus_fill();
+  memset(mus_wb, 0, sizeof mus_wb); mus_off = mus_start; mus_blk = 0; mus_next = 0; mus_ok = 1;
+  memset(mus_sv, 0, sizeof mus_sv); trk_save(0); mus_cur = 0; mus_want = 0;
+  { /* gevechtsmuziek (optioneel): moet hetzelfde blokformaat hebben als music.wav */
+    int bs0 = mus_bs, rate0 = mus_rate;
+    mus_data = plat_read_asset("battle.wav", &mus_len);
+    if (mus_data && mus_parse() && mus_bs == bs0 && mus_rate == rate0) { mus_off = mus_start; mus_blk = 0; trk_save(1); }
+    else if (mus_data) free(mus_data);
+    trk_load(0);
+  }
+  mus_fill();
   svcSetThreadPriority(CUR_THREAD_HANDLE, 0x30); /* hoofddraad vaste prioriteit; de muziekdraad (0x28) mag dan altijd voorrang nemen */
   mus_run = 1; mus_th = threadCreate(mus_thread, 0, 32 * 1024, 0x28, -1, false); if (!mus_th) mus_run = 0;
 }
+void plat_music(int id) { mus_want = id ? 1 : 0; }
 static void mus_update(void) { if (mus_ok && !mus_run) mus_fill(); } /* alleen zonder aparte draad */
 static void mus_toggle(void) { if (!mus_ok) return; mus_on = !mus_on; ndspChnSetPaused(0, !mus_on); }
-static void mus_exit(void) { if (!mus_ok) return; if (mus_th) { mus_run = 0; threadJoin(mus_th, U64_MAX); threadFree(mus_th); mus_th = 0; } ndspChnWaveBufClear(0); ndspExit(); linearFree(mus_pcm); mus_ok = 0; }
+static void mus_exit(void) { if (!mus_ok) return; sfx_exit(); if (mus_th) { mus_run = 0; threadJoin(mus_th, U64_MAX); threadFree(mus_th); mus_th = 0; } ndspChnWaveBufClear(0); ndspExit(); linearFree(mus_pcm); mus_ok = 0; }
 
 
 void plat_init(void) {
@@ -95,6 +159,7 @@ void plat_init(void) {
   romfs_ok = (romfsInit() == 0);
   mkdir("sdmc:/3ds", 0777); mkdir(SAVEDIR, 0777);
   mus_init();
+  sfx_init();
 }
 void plat_shutdown(void) { mus_exit(); if (romfs_ok) romfsExit(); gfxExit(); }
 extern int g_quit_flag;
