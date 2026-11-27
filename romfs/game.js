@@ -2548,7 +2548,7 @@ function audSet(k, d) { AUD[k] = Math.max(0, Math.min(3, AUD[k] + d)); audSave()
 const _me42 = musicEl; musicEl = function (k) { const a = _me42(k); if (a) a.volume = AUDM[AUD.m]; return a; };
 toggleMusic = function () { AUD.m = AUD.m ? 0 : 2; audSave(); audApply(); };
 function openSound() { ui.back = { mode: ui.mode, panel: ui.panel }; ui.mode = 'sound'; }
-function closeSound() { const b = ui.back || { mode: 'title' }; ui.mode = b.mode; if (b.panel) ui.panel = b.panel; ui.back = null; }
+function closeSound() { const b = ui.back || { mode: 'title' }; ui.mode = b.mode; if (b.panel) ui.panel = b.panel; ui.back = null; if (ui.mode === 'battle') { render(); try { pump(); } catch (e) {} } }
 function drawSoundTop() {
   if (Rules.s && ui.back && ui.back.mode !== 'title') { drawView(tc, 25, 15, 1); tc.fillStyle = 'rgba(8,4,2,.82)'; tc.fillRect(0, 0, 400, 240); frame(tc, 400, 240); }
   else { drawTitleTop(); tc.fillStyle = 'rgba(8,4,2,.84)'; tc.fillRect(0, 0, 400, 240); frame(tc, 400, 240); }
@@ -2565,7 +2565,7 @@ function drawSoundBottom() {
   button('Terug', 60, 180, 200, 34, () => closeSound(), true);
 }
 const _r42 = render;
-render = function () { if (ui.mode === 'sound') { musicFor(0); drawSoundTop(); drawSoundBottom(); return; } _r42(); };
+render = function () { if (ui.mode === 'sound') { musicFor(ui.back && ui.back.mode === 'battle' ? 1 : 0); drawSoundTop(); drawSoundBottom(); return; } _r42(); };
 drawTitleBottom = function () {
   buttons = []; mapBox = null; panelBg();
   txt(bc, 'Crownfall', 160, 36, 20, '#f2d27a', 'center', 700);
@@ -2576,6 +2576,21 @@ drawTitleBottom = function () {
 };
 const _dib42 = drawItemsBottom;
 drawItemsBottom = function () { _dib42(); button('Geluid', 158, 8, 72, 24, () => openSound(), true); };
+/* snelle geluidsknop tijdens het spelen: kaart, stad en gevecht */
+function soundIcon(x, y, w, h) {
+  bc.fillStyle = 'rgba(20,8,6,.8)'; bc.fillRect(x, y, w, h); bc.strokeStyle = GOLD; bc.lineWidth = 1.2; bc.strokeRect(x + .6, y + .6, w - 1.2, h - 1.2);
+  const cx = x + w / 2 - 3, cy = y + h / 2; rct(bc, cx - 5, cy - 2, 4, 4, '#fbe9b0'); poly(bc, '#fbe9b0', cx - 1, cy - 2, cx + 4, cy - 6, cx + 4, cy + 6, cx - 1, cy + 2);
+  if (AUD.m || AUD.e) { bc.strokeStyle = '#fbe9b0'; bc.lineWidth = 1.2; bc.beginPath(); bc.arc(cx + 4, cy, 4, -1, 1); bc.stroke(); }
+  else { bc.strokeStyle = '#ff6a5a'; bc.lineWidth = 1.6; bc.beginPath(); bc.moveTo(cx + 6, cy - 4); bc.lineTo(cx + 12, cy + 4); bc.moveTo(cx + 12, cy - 4); bc.lineTo(cx + 6, cy + 4); bc.stroke(); }
+  buttons.push({ x, y, w, h, on: () => openSound() });
+}
+const _db42 = drawBottom;
+drawBottom = function () {
+  _db42(); const m = ui.mode;
+  if (m === 'map') { if (ui.panel === 'levelup') return; if (castleOpen()) soundIcon(272, 207, 36, 22); else if (ui.panel === 'walk') soundIcon(292, 16, 22, 18); }
+};
+const _dbb42 = drawBattleBottom;
+drawBattleBottom = function () { _dbb42(); if (ui.mode === 'battle' && !Battle.b.done && Battle.b.cur && Battle.b.cur.side === 0 && !fxBusy() && !Battle.b.menu && !Battle.b.sel) soundIcon(290, 2, 22, 16); };
 audApply();
 try { globalThis.__aud = { AUD, audSet, audApply, openSound, closeSound, drawSoundBottom }; } catch (e) {}
 
