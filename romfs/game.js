@@ -1954,7 +1954,7 @@ function sfx(n) {
     if (typeof __sfx === 'function') { __sfx(SFXN.indexOf(n)); return; }
     const C = SFXC.ctx, b = SFXC.buf[n]; if (!C || !b) return;
     if (C.state === 'suspended') C.resume();
-    const s = C.createBufferSource(), g = C.createGain(); s.buffer = b; g.gain.value = .85; s.connect(g); g.connect(C.destination); s.start();
+    const s = C.createBufferSource(), g = C.createGain(); s.buffer = b; g.gain.value = SFXC.g == null ? .85 : SFXC.g; s.connect(g); g.connect(C.destination); s.start();
   } catch (e) {}
 }
 const FX = { l: [], end: 0, tm: 0 };
@@ -2528,6 +2528,56 @@ loadGame = function () {
   MM.s = null; TERR = null; revealAll(s); return true;
 };
 try { globalThis.__v41 = { placeExtras, reveal, revealAll, visitSite, pickSkill, favStat, drawMini, fogOver, drawLevelTop, drawLevelBottom, drawEndTop, drawEndBottom, vaultReward }; } catch (e) {}
+
+/* ================= v42: geluidsopties (muziek en effecten apart: uit / zacht / normaal / hard) ================= */
+const AUDN = ['Uit', 'Zacht', 'Normaal', 'Hard'], AUDM = [0, .2, .45, .8], AUDE = [0, .4, .85, 1];
+const AUD = { m: 2, e: 2 };
+try {
+  const j = localStorage.getItem('crownfall_aud');
+  if (j) { const o = JSON.parse(j); AUD.m = Math.max(0, Math.min(3, o.m | 0)); AUD.e = Math.max(0, Math.min(3, o.e | 0)); }
+  else { if (localStorage.getItem('crownfall_music') === '0') AUD.m = 0; if (localStorage.getItem('crownfall_sfx') === '0') AUD.e = 0; }
+} catch (e) {}
+function audApply() {
+  MUS.on = AUD.m > 0; SFXC.on = AUD.e > 0; SFXC.g = AUDE[AUD.e];
+  for (const a of MUS.el) if (a) a.volume = AUDM[AUD.m];
+  try { if (typeof __vol === 'function') { __vol(0, AUD.m); __vol(1, AUD.e); } } catch (e) {}
+  try { if (typeof musicSync === 'function') musicSync(); } catch (e) {}
+}
+function audSave() { try { localStorage.setItem('crownfall_aud', JSON.stringify(AUD)); } catch (e) {} }
+function audSet(k, d) { AUD[k] = Math.max(0, Math.min(3, AUD[k] + d)); audSave(); audApply(); if (k === 'e') { try { sfx('slash'); } catch (e) {} } }
+const _me42 = musicEl; musicEl = function (k) { const a = _me42(k); if (a) a.volume = AUDM[AUD.m]; return a; };
+toggleMusic = function () { AUD.m = AUD.m ? 0 : 2; audSave(); audApply(); };
+function openSound() { ui.back = { mode: ui.mode, panel: ui.panel }; ui.mode = 'sound'; }
+function closeSound() { const b = ui.back || { mode: 'title' }; ui.mode = b.mode; if (b.panel) ui.panel = b.panel; ui.back = null; }
+function drawSoundTop() {
+  if (Rules.s && ui.back && ui.back.mode !== 'title') { drawView(tc, 25, 15, 1); tc.fillStyle = 'rgba(8,4,2,.82)'; tc.fillRect(0, 0, 400, 240); frame(tc, 400, 240); }
+  else { drawTitleTop(); tc.fillStyle = 'rgba(8,4,2,.84)'; tc.fillRect(0, 0, 400, 240); frame(tc, 400, 240); }
+  txt(tc, 'Geluid', 200, 110, 26, '#f2d27a', 'center', 700); txt(tc, 'Muziek en effecten stel je apart in.', 200, 140, 12, '#fbe9b0', 'center', 600);
+}
+function drawSoundBottom() {
+  buttons = []; mapBox = null; panelBg(); txt(bc, 'Geluid', 160, 24, 16, '#f2d27a', 'center', 700);
+  [['m', 'Muziek', 56], ['e', 'Effecten', 118]].forEach(r => {
+    const k = r[0], y = r[2]; txt(bc, r[1], 160, y - 12, 12, '#c9b890', 'center', 700);
+    button('−', 20, y, 56, 32, () => audSet(k, -1), AUD[k] > 0); button('+', 244, y, 56, 32, () => audSet(k, 1), AUD[k] < 3);
+    txt(bc, AUDN[AUD[k]], 160, y + 16, 14, AUD[k] ? '#fbe9b0' : '#ff9a8a', 'center', 700);
+    for (let i = 0; i < 4; i++) { bc.fillStyle = i <= AUD[k] && AUD[k] > 0 ? '#d9b24a' : 'rgba(0,0,0,.5)'; bc.fillRect(100 + i * 30, y + 26, 24, 4); }
+  });
+  button('Terug', 60, 180, 200, 34, () => closeSound(), true);
+}
+const _r42 = render;
+render = function () { if (ui.mode === 'sound') { musicFor(0); drawSoundTop(); drawSoundBottom(); return; } _r42(); };
+drawTitleBottom = function () {
+  buttons = []; mapBox = null; panelBg();
+  txt(bc, 'Crownfall', 160, 36, 20, '#f2d27a', 'center', 700);
+  if (ui.hasSave) button('Doorgaan', 50, 62, 220, 34, () => { if (loadGame()) { Object.assign(ui, { mode: 'map', panel: 'castle', tab: 'units', path: null, cam: null, walking: false, cnf: false }); checkEnd(); } render(); }, true);
+  button('Nieuw spel', 50, ui.hasSave ? 108 : 80, 220, 34, () => newGame(), true);
+  button('Geluid', 50, ui.hasSave ? 154 : 126, 220, 34, () => openSound(), true);
+  txt(bc, 'Tik op een knop', 160, 214, 11, '#c9b890', 'center', 'italic 600');
+};
+const _dib42 = drawItemsBottom;
+drawItemsBottom = function () { _dib42(); button('Geluid', 158, 8, 72, 24, () => openSound(), true); };
+audApply();
+try { globalThis.__aud = { AUD, audSet, audApply, openSound, closeSound, drawSoundBottom }; } catch (e) {}
 
 ui.hasSave = hasSave(); ui.mode = 'title';
 render();
