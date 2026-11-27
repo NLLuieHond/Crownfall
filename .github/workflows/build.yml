@@ -40,11 +40,10 @@ jobs:
           rel() { curl -fsSL "https://api.github.com/repos/$1/releases/latest"; }
           MR=$(rel 3DSGuy/Project_CTR | jq -r '.assets[].browser_download_url' | grep -i ubuntu | grep -i x86_64 | head -1)
           curl -fsSL "$MR" -o makerom.zip && unzip -o makerom.zip && chmod +x makerom
-          BU=$(rel carstene1ns/3ds-bannertool | jq -r '.assets[].browser_download_url' | grep -i zip | head -1)
-          curl -fsSL "$BU" -o bt.zip && unzip -o bt.zip
-          BT=$(find . -type f -name bannertool | grep -i linux | head -1)
-          if [ -z "$BT" ]; then BT=$(find . -type f -name bannertool | head -1); fi
-          chmod +x "$BT"
+          apt-get install -y git g++
+          git clone --depth 1 https://github.com/carstene1ns/3ds-bannertool bt-src
+          g++ -std=c++17 -O2 -w -Ibt-src/source -Ibt-src/source/pc -DSTBI_ONLY_PNG -DSTBI_NO_LINEAR -DSTBI_NO_STDIO -DSTB_VORBIS_NO_PUSHDATA_API -DSTB_VORBIS_NO_STDIO -DDR_WAV_NO_STDIO -DVERSION='"1.2.3"' $(find bt-src/source -name '*.cpp') -o bannertool
+          BT=./bannertool
           "$BT" makebanner -i banner.png -a silence.wav -o banner.bnr
           "$BT" makesmdh -s "Crownfall" -l "Strategiespel" -p "Crownfall" -i icon.png -o icon.icn
           ./makerom -f cia -o crownfall.cia -elf crownfall.elf -rsf crownfall.rsf -icon icon.icn -banner banner.bnr -exefslogo -target t -DAPP_ROMFS=romfs
