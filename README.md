@@ -1,24 +1,12 @@
 # Crownfall voor de Nintendo 3DS
 
-Je hebt geen programmeerkennis nodig. Je laat een gratis server op internet het spel voor je bouwen.
-
-## Stap 1 - Maak een gratis GitHub-account
-1. Ga naar https://github.com en kies "Sign up". Maak een account.
-
-## Stap 2 - Zet het project online
-1. Klik rechtsboven op "+" en kies "New repository". Naam: `crownfall`. Kies "Public". Klik "Create repository".
-2. Pak de zip uit op je computer.
-3. Klik op "uploading an existing file". Sleep ALLE bestanden en mappen uit de uitgepakte map erin (ook de verborgen map `.github`: zet in de Verkenner "Verborgen items" aan onder Beeld).
-   Let op: de map `.github` moet er echt bij zitten, anders start het bouwen niet.
-4. Klik onderaan op "Commit changes".
-
-## Stap 3 - Laat het bouwen
+## Stap 1 - Laat het bouwen
 1. Klik bovenin op het tabblad "Actions". Het bouwen start vanzelf (duurt ongeveer 3 tot 6 minuten).
 2. Wacht tot er een groen vinkje staat. Klik op de naam van de run.
 3. Onderaan bij "Artifacts" klik je op `Crownfall-3DS`. Je krijgt een zip.
 4. Is het rood? Maak een screenshot van de foutmelding en stuur die naar mij. Dan los ik het op.
 
-## Stap 4 - Op je 3DS zetten
+## Stap 2 - Op je 3DS zetten
 **Optie A (makkelijkst): .3dsx**
 1. Zet de SD-kaart van je 3DS in je computer.
 2. Kopieer `crownfall.3dsx` naar de map `3ds` op de SD-kaart.
