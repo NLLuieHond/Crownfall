@@ -660,9 +660,11 @@ function overlayTop() { /* vignet + kader, eenmalig samengevoegd */
   if (OVTOP) return OVTOP; if (!okI('fTop')) return null;
   const cv = mkCv(400, 240), q = cv.getContext('2d'); vignette(q, 400, 240); frame(q, 400, 240); return OVTOP = cv;
 }
+let OVBT = null;
+function overlayBattle() { if (OVBT) return OVBT; const cv = mkCv(400, 240); vignette(cv.getContext('2d'), 400, 240); return OVBT = cv; }
 function drawBattleTop() {
   const bb = battleBase(); tc.drawImage(bb, 0, 0); drawBattle(tc, 22, 38, 32);
-  const ov = overlayTop(); if (ov) tc.drawImage(ov, 0, 0); else { vignette(tc, 400, 240); frame(tc, 400, 240); } txt(tc, 'Ronde ' + Battle.b.round, 12, 12, 11, '#fbe9b0', 'left', 600);
+  tc.drawImage(overlayBattle(), 0, 0); txt(tc, 'Ronde ' + Battle.b.round, 12, 12, 11, '#fbe9b0', 'left', 600);
 }
 const _town0 = drawTown;
 drawTown = function () {
@@ -1116,7 +1118,8 @@ function drawHeroTab() {
   });
   rowBg(12, 150, 296, 25); txt(bc, D.power, 18, 158, 10, '#9fe08f', 'left', 600);
   txt(bc, 'Spreuk: ' + SP.n + ' (' + SP.c + ')  ·  ' + SP.desc, 18, 169, 10, '#fbe9b0', 'left', 600);
-  if (dn) button('Terughalen (' + reviveCost() + ')', 12, 179, 190, 22, () => Rules.revive(), Rules.s.gold >= reviveCost()); else button('Uitrusting', 12, 179, 190, 22, () => { ui.panel = 'items'; ui.sel = null; ui.ipage = 0; }, true);
+  if (dn) button('Terughalen (' + reviveCost() + ')', 12, 179, 104, 22, () => Rules.revive(), Rules.s.gold >= reviveCost()); else button('Uitrusting', 12, 179, 104, 22, () => { ui.panel = 'items'; ui.sel = null; ui.ipage = 0; }, true);
+  button('Geluid', 120, 179, 88, 22, () => openSound(), true);
   button(ui.cnf ? 'Zeker weten?' : 'Nieuw spel', 214, 179, 94, 22, () => { if (ui.cnf) newGame(); else { ui.cnf = true; Rules.s.msg = 'Tik nogmaals om opnieuw te beginnen.'; } }, true);
 }
 drawBattleBottom = function () {
@@ -2574,23 +2577,6 @@ drawTitleBottom = function () {
   button('Geluid', 50, ui.hasSave ? 154 : 126, 220, 34, () => openSound(), true);
   txt(bc, 'Tik op een knop', 160, 214, 11, '#c9b890', 'center', 'italic 600');
 };
-const _dib42 = drawItemsBottom;
-drawItemsBottom = function () { _dib42(); button('Geluid', 158, 8, 72, 24, () => openSound(), true); };
-/* snelle geluidsknop tijdens het spelen: kaart, stad en gevecht */
-function soundIcon(x, y, w, h) {
-  bc.fillStyle = 'rgba(20,8,6,.8)'; bc.fillRect(x, y, w, h); bc.strokeStyle = GOLD; bc.lineWidth = 1.2; bc.strokeRect(x + .6, y + .6, w - 1.2, h - 1.2);
-  const cx = x + w / 2 - 3, cy = y + h / 2; rct(bc, cx - 5, cy - 2, 4, 4, '#fbe9b0'); poly(bc, '#fbe9b0', cx - 1, cy - 2, cx + 4, cy - 6, cx + 4, cy + 6, cx - 1, cy + 2);
-  if (AUD.m || AUD.e) { bc.strokeStyle = '#fbe9b0'; bc.lineWidth = 1.2; bc.beginPath(); bc.arc(cx + 4, cy, 4, -1, 1); bc.stroke(); }
-  else { bc.strokeStyle = '#ff6a5a'; bc.lineWidth = 1.6; bc.beginPath(); bc.moveTo(cx + 6, cy - 4); bc.lineTo(cx + 12, cy + 4); bc.moveTo(cx + 12, cy - 4); bc.lineTo(cx + 6, cy + 4); bc.stroke(); }
-  buttons.push({ x, y, w, h, on: () => openSound() });
-}
-const _db42 = drawBottom;
-drawBottom = function () {
-  _db42(); const m = ui.mode;
-  if (m === 'map') { if (ui.panel === 'levelup') return; if (castleOpen()) soundIcon(272, 207, 36, 22); else if (ui.panel === 'walk') soundIcon(292, 16, 22, 18); }
-};
-const _dbb42 = drawBattleBottom;
-drawBattleBottom = function () { _dbb42(); if (ui.mode === 'battle' && !Battle.b.done && Battle.b.cur && Battle.b.cur.side === 0 && !fxBusy() && !Battle.b.menu && !Battle.b.sel) soundIcon(290, 2, 22, 16); };
 audApply();
 try { globalThis.__aud = { AUD, audSet, audApply, openSound, closeSound, drawSoundBottom }; } catch (e) {}
 
