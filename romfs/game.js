@@ -2263,6 +2263,272 @@ if (HAS_AUDIO) {
   drawTitleBottom = function () { _dtb(); const y0 = ui.hasSave ? 154 : 126; button('Muziek: ' + (MUS.on ? 'aan' : 'uit'), 50, y0, 220, 28, () => toggleMusic(), true); button('Effecten: ' + (SFXC.on ? 'aan' : 'uit'), 50, y0 + 32, 220, 28, () => toggleSfx(), true); };
 }
 
+/* ================= v41: mist + minikaart, levelkeuze, eindscherm met statistieken, kaartobjecten, tweede kasteel ================= */
+const TCOL = ['#4e8a34', '#2d6a2f', '#1f5a96', '#7c7c8c'];
+const SITEN = { vault: 'Schatkamer', gate: 'Bergpas', altar: 'Krijgsaltaar', spring: 'Heilige bron', wind: 'Windaltaar', lib: 'Oude bibliotheek', stat: 'Strijdstandbeeld', wall: 'Schildmuur', well: 'Magische bron', fort: 'Wachtburcht' };
+const newStats = () => ({ battles: 0, won: 0, kills: 0, lost: 0, gold: 0, chests: 0, sites: 0 });
+const seenGrid = () => Array.from({ length: MH }, () => Array(MW).fill(0));
+const stOf = s => s.stats || (s.stats = newStats());
+/* ----- minikaart (cache op een eigen canvas: alleen nieuw ontdekte tegels worden bijgetekend) ----- */
+const MM = { s: null, cv: null };
+function mmEnsure(s) {
+  if (MM.s === s && MM.cv) return MM.cv;
+  const cv = mkCv(MW * 2, MH * 2), q = cv.getContext('2d'); q.fillStyle = '#000'; q.fillRect(0, 0, MW * 2, MH * 2);
+  if (s.seen) for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (s.seen[y][x]) { q.fillStyle = TCOL[s.map[y][x]]; q.fillRect(x * 2, y * 2, 2, 2); }
+  MM.s = s; MM.cv = cv; return cv;
+}
+function reveal(s, cx, cy, r) {
+  if (!s.seen) return 0; let n = 0; const cv = (MM.s === s) ? MM.cv : null, q = cv && cv.getContext('2d');
+  for (let y = Math.max(0, cy - r); y <= Math.min(MH - 1, cy + r); y++) for (let x = Math.max(0, cx - r); x <= Math.min(MW - 1, cx + r); x++) {
+    if (s.seen[y][x] || (x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r + r) continue;
+    s.seen[y][x] = 1; n++; if (q) { q.fillStyle = TCOL[s.map[y][x]]; q.fillRect(x * 2, y * 2, 2, 2); }
+  }
+  return n;
+}
+function revealAll(s) { /* kasteel, helden en bezittingen */
+  reveal(s, CASTLE.x, CASTLE.y, 8); reveal(s, s.hero.x, s.hero.y, 5);
+  for (const m of s.mines || []) if (m.own) reveal(s, m.x, m.y, 3);
+  if (s.fort && s.fort.own) reveal(s, s.fort.x, s.fort.y, 5);
+}
+/* ----- extra kaartobjecten plaatsen ----- */
+function placeExtras(s) {
+  const M = s.map, r = rng((Math.random() * 2147483647) | 0); s.sites = []; s.fort = null;
+  const objs = () => { const o = [[CASTLE.x, CASTLE.y], [ENEMY.x, ENEMY.y]]; for (const k of s.chests) o.push([k.x, k.y]); for (const f of s.foes) o.push([f.x, f.y]); for (const m of s.mines || []) o.push([m.x, m.y]); for (const q of s.sites) o.push([q.x, q.y]); if (s.fort) o.push([s.fort.x, s.fort.y]); return o; };
+  const reachAll = () => {
+    const R = Array.from({ length: MH }, () => Array(MW).fill(false)), q = [[CASTLE.x, CASTLE.y]]; R[CASTLE.y][CASTLE.x] = true;
+    while (q.length) { const p = q.pop(); for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const x = p[0] + d[0], y = p[1] + d[1]; if (x < 0 || y < 0 || x >= MW || y >= MH || R[y][x] || M[y][x] === WATER || M[y][x] === MOUNT) continue; R[y][x] = true; q.push([x, y]); } }
+    return R;
+  };
+  const R0 = reachAll();
+  const clear = (x, y, gap) => !objs().some(p => hyp(p[0] - x, p[1] - y) < gap);
+  const pick = (gap0, ok) => { for (const gap of [gap0, gap0 - 1, gap0 - 2, 2]) { const r = pick1(gap, ok); if (r) return r; } return null; };
+  const pick1 = (gap, ok) => { const c = []; for (let y = 1; y < MH - 1; y++) for (let x = 1; x < MW - 1; x++) if (R0[y][x] && M[y][x] === GRASS && hyp(x - CASTLE.x, y - CASTLE.y) >= 4 && hyp(x - ENEMY.x, y - ENEMY.y) >= 5 && (!ok || ok(x, y)) && clear(x, y, gap)) c.push([x, y]); return c.length ? c[(r() * c.length) | 0] : null; };
+  /* Wachtburcht: tweede kasteel, halverwege de kaart, bewaakt */
+  const fp = pick(6, (x, y) => { const d = hyp(x - CASTLE.x, y - CASTLE.y); return d >= 12 && d <= 22; }) || pick(4, (x, y) => hyp(x - CASTLE.x, y - CASTLE.y) >= 10);
+  if (fp) { s.fort = { x: fp[0], y: fp[1], own: 0 }; s.foes.push({ x: fp[0], y: fp[1], id: 'ogre', n: 8, guard: true, fort: true }); }
+  /* verborgen vallei: bergring met een bewaakte ingang, met een schatkamer erin */
+  for (let tr = 0; tr < 300 && !s.sites.some(q => q.t === 'gate'); tr++) {
+    const x0 = 1 + (r() * (MW - 9) | 0), y0 = 1 + (r() * (MH - 7) | 0);
+    if (hyp(x0 + 3 - CASTLE.x, y0 + 2 - CASTLE.y) < 9 || hyp(x0 + 3 - ENEMY.x, y0 + 2 - ENEMY.y) < 9) continue;
+    let ok = true; for (let y = y0 - 1; y <= y0 + 5 && ok; y++) for (let x = x0 - 1; x <= x0 + 7; x++) { if (M[y] === undefined || M[y][x] === undefined) continue; if (M[y][x] === WATER && y >= y0 && y <= y0 + 4 && x >= x0 && x <= x0 + 6) { ok = false; break; } if (objs().some(p => p[0] === x && p[1] === y)) { ok = false; break; } }
+    if (!ok) continue;
+    const down = M[y0 + 5] && M[y0 + 5][x0 + 3] !== undefined && M[y0 + 5][x0 + 3] !== WATER && M[y0 + 5][x0 + 3] !== MOUNT, ex = x0 + 3, ey = down ? y0 + 4 : y0, ox = ex, oy = down ? y0 + 5 : y0 - 1;
+    if (!(M[oy] && M[oy][ox] !== undefined && M[oy][ox] !== WATER && M[oy][ox] !== MOUNT) || !R0[oy][ox]) continue;
+    const old = []; for (let y = y0; y <= y0 + 4; y++) for (let x = x0; x <= x0 + 6; x++) { old.push([x, y, M[y][x]]); M[y][x] = (x === x0 || x === x0 + 6 || y === y0 || y === y0 + 4) ? MOUNT : GRASS; }
+    M[ey][ex] = GRASS;
+    const R1 = reachAll(), all = objs(); /* alles moet bereikbaar blijven; de binnenkant bereik je alleen via de ingang */
+    if (!all.every(p => R1[p[1]][p[0]] || (p[0] >= x0 && p[0] <= x0 + 6 && p[1] >= y0 && p[1] <= y0 + 4))) { for (const o of old) M[o[1]][o[0]] = o[2]; continue; }
+    if (!R1[ey][ex]) { for (const o of old) M[o[1]][o[0]] = o[2]; continue; }
+    s.sites.push({ x: ex, y: ey, t: 'gate', g: 1 }); s.foes.push({ x: ex, y: ey, id: 'ogre', n: 7, guard: true, gate: true });
+    s.sites.push({ x: x0 + 3, y: y0 + 2, t: 'vault', g: 0 });
+    s.chests.push({ x: x0 + 2, y: y0 + 2, r: 'crystal' }, { x: x0 + 4, y: y0 + 2, r: 'gold' });
+  }
+  /* een bewaakte schatkamer in het open veld */
+  const vp = pick(5, (x, y) => hyp(x - CASTLE.x, y - CASTLE.y) >= 10); if (vp) { s.sites.push({ x: vp[0], y: vp[1], t: 'vault', g: 1 }); s.foes.push({ x: vp[0], y: vp[1], id: 'wolf', n: 12, guard: true, vault: true }); }
+  /* bezienswaardigheden die stats geven */
+  const SG = ['lib', 'stat', 'wall', 'well']; for (let i = SG.length - 1; i > 0; i--) { const j = r() * (i + 1) | 0; const t = SG[i]; SG[i] = SG[j]; SG[j] = t; }
+  for (const t of SG.slice(0, 3)) { const p = pick(5, (x, y) => hyp(x - CASTLE.x, y - CASTLE.y) >= 6); if (p) s.sites.push({ x: p[0], y: p[1], t, used: 0 }); }
+  /* tijdelijke bonussen */
+  for (const t of ['altar', 'spring', 'wind']) { const p = pick(4, (x, y) => hyp(x - CASTLE.x, y - CASTLE.y) >= 5); if (p) s.sites.push({ x: p[0], y: p[1], t }); }
+}
+/* ----- gebruik van objecten ----- */
+const SBUF = { altar: { k: 'atk', v: 2, d: 3, n: 'Krijgsaltaar' }, spring: { k: 'def', v: 2, d: 3, n: 'Heilige bron' } };
+function vaultReward(s, x, y) {
+  const d = hyp(x - CASTLE.x, y - CASTLE.y), gold = 250 + Math.round(d * 8); s.gold += gold; let m = 'Schatkamer: +' + gold + ' goud';
+  const it = makeItem(Math.min(3, tierFor(d) + 1)); if (addItem(it)) m += ', ' + ITEMS[it].n; s.res.crystal += 2; return m + ' en +2 kristal!';
+}
+function visitSite(s) {
+  const h = s.hero, i = (s.sites || []).findIndex(q => q.x === h.x && q.y === h.y && !q.g); if (i < 0) return '';
+  const q = s.sites[i]; let m = '';
+  if (q.t === 'vault') { m = vaultReward(s, q.x, q.y); s.sites.splice(i, 1); stOf(s).sites++; }
+  else if (q.t === 'wind') { h.mp += 5; m = 'Windaltaar: +5 stappen vandaag!'; s.sites.splice(i, 1); stOf(s).sites++; }
+  else if (SBUF[q.t]) { const B = SBUF[q.t]; h[B.k] += B.v; (s.buffs = s.buffs || []).push({ k: B.k, v: B.v, d: B.d, n: B.n }); m = B.n + ': +' + B.v + ' ' + STATNAME[B.k].toLowerCase() + ' voor ' + B.d + ' dagen!'; s.sites.splice(i, 1); stOf(s).sites++; }
+  else if (!q.used) {
+    q.used = 1; stOf(s).sites++;
+    if (q.t === 'lib') { h.know++; m = 'Oude bibliotheek: +1 kennis!'; } else if (q.t === 'stat') { h.atk++; m = 'Strijdstandbeeld: +1 aanval!'; }
+    else if (q.t === 'wall') { h.def++; m = 'Schildmuur: +1 verdediging!'; } else { h.pow++; h.sp = maxSp(h); m = 'Magische bron: +1 spreukkracht en volle magie!'; }
+  } else m = SITEN[q.t] + ': je hebt hier al van geleerd.';
+  return m;
+}
+const _mv41 = Rules.move;
+Rules.move = function (dx, dy) {
+  const s = this.s, h = s.hero; if ((h.pend | 0) > 0) { s.msg = 'Kies eerst een vaardigheid.'; return; }
+  const x0 = h.x, y0 = h.y, g0 = s.gold, c0 = s.chests.length;
+  _mv41.call(this, dx, dy);
+  if (h.x !== x0 || h.y !== y0) {
+    reveal(s, h.x, h.y, 5); s.fogV = (s.fogV | 0) + 1;
+    const S = stOf(s); if (s.chests.length < c0) { S.chests++; S.gold += Math.max(0, s.gold - g0); }
+    const m = visitSite(s); if (m) s.msg = (s.msg ? s.msg + ' ' : '') + m;
+  }
+};
+const _cap41 = Rules.captureAt;
+Rules.captureAt = function (x, y) {
+  const s = this.s; let m = _cap41.call(this, x, y) || '';
+  const mi = (s.mines || []).find(q => q.x === x && q.y === y); if (mi && mi.own) reveal(s, x, y, 3);
+  const i = (s.sites || []).findIndex(q => q.x === x && q.y === y && q.g);
+  if (i >= 0) {
+    const q = s.sites[i]; stOf(s).sites++;
+    if (q.t === 'vault') { m = (m ? m + ' ' : '') + vaultReward(s, x, y); s.sites.splice(i, 1); }
+    else { m = (m ? m + ' ' : '') + 'De bergpas is vrij! Achter de bergen ligt een verborgen schat.'; s.sites.splice(i, 1); reveal(s, x, y + (y > MH / 2 ? -2 : 2), 4); }
+  }
+  if (s.fort && s.fort.x === x && s.fort.y === y && !s.fort.own) { s.fort.own = 1; reveal(s, x, y, 5); m = (m ? m + ' ' : '') + 'Wachtburcht veroverd! Elke dag +60 goud en elke week extra troepen.'; }
+  return m;
+};
+const _et41 = Rules.endTurn;
+Rules.endTurn = function () {
+  const s = this.s, g0 = s.gold; _et41.call(this);
+  if (s.buffs) { const keep = []; for (const b of s.buffs) { b.d--; if (b.d > 0) keep.push(b); else { s.hero[b.k] -= b.v; s.msg = (s.msg ? s.msg + ' ' : '') + b.n + ' is uitgewerkt.'; } } s.buffs = keep; }
+  if (s.fort && s.fort.own) {
+    s.gold += 60; let m = 'Wachtburcht: +60 goud';
+    if (s.day % 7 === 1) { s.stock.spear = Math.min(40, s.stock.spear + 5); s.stock.bow = Math.min(40, s.stock.bow + 3); s.stock.knight = Math.min(40, s.stock.knight + 2); m += ' en weekversterking: +5/+3/+2 troepen in de stad'; }
+    s.msg = (s.msg ? s.msg + ' ' : '') + m + '.';
+  }
+  stOf(s).gold += Math.max(0, s.gold - g0); revealAll(s); s.fogV = (s.fogV | 0) + 1;
+};
+/* ----- statistieken bijhouden ----- */
+const _bs41 = Battle.start;
+Battle.start = function (f) { _bs41.call(this, f); for (const u of this.b.st) u._n0 = u.n; };
+const _bc41 = Battle.close;
+Battle.close = function () {
+  const b = this.b, s = Rules.s, S = stOf(s), g0 = s.gold; let k = 0, l = 0;
+  for (const u of b.st) { const n0 = u._n0 != null ? u._n0 : u.n; if (u.side === 1) k += n0 - u.n; else l += n0 - u.n; }
+  S.battles++; S.kills += Math.max(0, k); S.lost += Math.max(0, l); if (b.done === 1) S.won++;
+  _bc41.call(this); S.gold += Math.max(0, s.gold - g0); revealAll(s);
+};
+/* ----- held levelt: keuze van een vaardigheid ----- */
+Rules.gainXp = function (n) {
+  const H = this.s.hero; H.xp += n; let msg = '+' + n + ' ervaring.';
+  while (H.xp >= 25 * H.lvl * (H.lvl + 1)) { H.lvl++; H.max++; H.mp++; H.sp = Math.min(maxSp(H), H.sp + 5); H.pend = (H.pend | 0) + 1; msg += ' Niveau ' + H.lvl + '! +1 stap.'; }
+  return msg;
+};
+const LVK = ['atk', 'def', 'pow', 'know'], LVN = { atk: 'Aanval', def: 'Verdediging', pow: 'Magie', know: 'Kennis' };
+const LVD = { atk: 'Je eenheden doen meer schade.', def: 'Je eenheden krijgen minder schade.', pow: 'Je spreuken worden sterker.', know: 'Meer spreukpunten voor je held.' };
+const favStat = H => { const w = HEROES[H.id].w; let b = 0; for (let i = 1; i < 4; i++) if (w[i] > w[b]) b = i; return LVK[b]; };
+function pickSkill(k) {
+  const s = Rules.s, H = s.hero; if ((H.pend | 0) <= 0) return; H[k]++; H.pend--; if (k === 'know') H.sp = Math.min(maxSp(H), H.sp + 10);
+  s.msg = LVN[k] + ' is gestegen naar ' + H[k] + '.' + (H.pend > 0 ? ' Nog een keuze!' : ''); try { sfx('win'); } catch (e) {}
+  if (H.pend <= 0) ui.panel = Rules.onCastle() ? 'castle' : 'walk';
+}
+function drawLevelTop() {
+  const s = Rules.s, H = s.hero; drawView(tc, 25, 15, 1); tc.fillStyle = 'rgba(8,4,2,.8)'; tc.fillRect(0, 0, 400, 240);
+  portrait(tc, H.id, 24, 52, 92, 112, false);
+  txt(tc, 'Niveau ' + H.lvl + ' bereikt!', 140, 66, 22, '#f2d27a', 'left', 700);
+  txt(tc, H.name + ' wordt sterker.', 140, 92, 13, '#fbe9b0', 'left', 600);
+  txt(tc, 'Kies een vaardigheid om te verbeteren.', 140, 114, 11, '#c9b890', 'left', 600);
+  LVK.forEach((k, i) => txt(tc, LVN[k] + ': ' + H[k], 140, 140 + i * 14, 11, '#e8eaf2', 'left', 600));
+  frame(tc, 400, 240);
+}
+function drawLevelBottom() {
+  const H = Rules.s.hero, fav = favStat(H); buttons = []; mapBox = null; panelBg();
+  txt(bc, 'Kies een vaardigheid' + (H.pend > 1 ? ' (' + H.pend + ' keuzes)' : ''), 160, 24, 14, '#f2d27a', 'center', 700);
+  LVK.forEach((k, i) => {
+    const y = 44 + i * 46; button(LVN[k] + '  ' + H[k] + ' → ' + (H[k] + 1) + (k === fav ? '  ★' : ''), 20, y, 280, 30, () => pickSkill(k), true);
+    txt(bc, LVD[k], 160, y + 40, 10, '#c9b890', 'center', 600);
+  });
+}
+/* ----- eindscherm met statistieken ----- */
+function endRank(s) { return s.won ? (s.day <= 25 ? 'Gouden kroon' : s.day <= 40 ? 'Zilveren kroon' : 'Bronzen kroon') : 'Geen kroon'; }
+drawEndTop = function () {
+  const s = Rules.s, w = s.won; drawView(tc, 25, 15, 1); tc.fillStyle = 'rgba(8,4,2,.8)'; tc.fillRect(0, 0, 400, 240);
+  txt(tc, w ? 'Overwinning!' : 'Verslagen', 200, 56, 34, w ? '#f2d27a' : '#ff8a7a', 'center', 700);
+  txt(tc, w ? 'Je hebt het rode kasteel veroverd.' : 'De ' + MAXDAY + ' dagen zijn voorbij.', 200, 92, 14, '#fbe9b0', 'center', 600);
+  txt(tc, endRank(s), 200, 122, 16, w ? '#f2d27a' : '#c9b890', 'center', 700);
+  txt(tc, s.hero.name + '  ·  niveau ' + s.hero.lvl, 200, 150, 12, '#e8eaf2', 'center', 600);
+  txt(tc, 'Dag ' + Math.min(s.day, MAXDAY) + ' van ' + MAXDAY, 200, 170, 12, '#c9b890', 'center', 600);
+  frame(tc, 400, 240);
+};
+drawEndBottom = function () {
+  const s = Rules.s, S = stOf(s); buttons = []; mapBox = null; panelBg();
+  txt(bc, 'Statistieken', 160, 20, 16, '#f2d27a', 'center', 700);
+  const mines = (s.mines || []).filter(m => m.own).length, rows = [['Gevechten gewonnen', S.won + '/' + S.battles], ['Vijanden verslagen', S.kills], ['Eenheden verloren', S.lost], ['Goud verdiend', S.gold], ['Kisten geopend', S.chests], ['Mijnen in bezit', mines], ['Plekken bezocht', S.sites], ['Wachtburcht', s.fort ? (s.fort.own ? 'veroverd' : 'niet veroverd') : '-']];
+  rows.forEach((r, i) => { const y = 42 + i * 18; txt(bc, r[0], 26, y, 11, '#c9b890', 'left', 600); txt(bc, String(r[1]), 294, y, 11, '#fbe9b0', 'right', 700); });
+  button('Nieuw spel', 20, 194, s.won ? 136 : 280, 32, () => newGame(), true);
+  if (s.won) button('Verder spelen', 164, 194, 136, 32, () => { s.endSeen = true; ui.mode = 'map'; }, true);
+};
+/* ----- tekenen: mist, objecten, minikaart ----- */
+const FOGA = [0, .16, .3, .45, .6];
+function fogOver(c, vw, vh) {
+  const s = Rules.s; if (!s || !s.seen || ui.mode === 'end') return;
+  const cm = viewCam(vw, vh), S = s.seen, sn = (x, y) => (x < 0 || y < 0 || x >= MW || y >= MH) ? 1 : S[y][x];
+  c.save(); c.scale(VZ, VZ);
+  for (let y = 0; y < vh; y++) for (let x = 0; x < vw; x++) {
+    const tx = cm.x + x, ty = cm.y + y;
+    if (!S[ty][tx]) { c.fillStyle = '#0a0810'; c.fillRect(x * T - .25, y * T - .25, T + .5, T + .5); continue; }
+    const n = (sn(tx - 1, ty) ? 0 : 1) + (sn(tx + 1, ty) ? 0 : 1) + (sn(tx, ty - 1) ? 0 : 1) + (sn(tx, ty + 1) ? 0 : 1);
+    if (n) { c.fillStyle = 'rgba(10,8,16,' + FOGA[n] + ')'; c.fillRect(x * T, y * T, T, T); }
+  }
+  c.restore();
+}
+function drawSite(c, px, py, q) {
+  const t = q.t; c.save(); if (q.used) c.globalAlpha = .5;
+  if (t === 'gate') { rct(c, px + 1, py + 3, 3, 12, '#6a6a78'); rct(c, px + 12, py + 3, 3, 12, '#6a6a78'); rct(c, px + 1, py + 1, 14, 3, '#8a8a98'); rct(c, px + 2, py + 2, 12, 1, '#b8b8c8'); poly(c, '#c03030', px + 6, py + 4, px + 10, py + 4, px + 8, py + 8); }
+  else if (t === 'vault') { rct(c, px + 2, py + 6, 12, 8, '#5a5058'); rct(c, px + 2, py + 5, 12, 2, '#7a7080'); rct(c, px + 6, py + 9, 4, 5, '#d9b24a'); ell(c, px + 8, py + 8, 1.5, 1.5, '#fff0a0'); poly(c, '#7a7080', px + 1, py + 6, px + 8, py + 1, px + 15, py + 6); }
+  else if (t === 'altar') { rct(c, px + 3, py + 10, 10, 4, '#7a7080'); rct(c, px + 5, py + 8, 6, 3, '#9a90a0'); ell(c, px + 8, py + 6, 3.2, 3.2, 'rgba(255,90,60,.55)'); ell(c, px + 8, py + 6, 1.8, 1.8, '#ffb070'); }
+  else if (t === 'spring') { ell(c, px + 8, py + 11, 7, 4, '#6a7a88'); ell(c, px + 8, py + 11, 5.5, 3, '#3a9ae0'); ell(c, px + 6, py + 10, 1.5, .8, '#d0f0ff'); rct(c, px + 7, py + 3, 2, 6, 'rgba(160,220,255,.8)'); }
+  else if (t === 'wind') { ell(c, px + 8, py + 12, 6, 2, 'rgba(0,0,0,.25)'); ell(c, px + 8, py + 9, 6, 2.2, 'rgba(160,255,190,.55)'); ell(c, px + 8, py + 6, 4.5, 1.8, 'rgba(200,255,220,.7)'); ell(c, px + 8, py + 3.5, 3, 1.4, 'rgba(240,255,245,.85)'); }
+  else if (t === 'lib') { rct(c, px + 2, py + 7, 12, 8, '#7a4a28'); poly(c, '#a05a30', px + 1, py + 8, px + 8, py + 2, px + 15, py + 8); rct(c, px + 6, py + 10, 4, 5, '#2a1608'); rct(c, px + 3, py + 9, 2, 2, '#ffe080'); rct(c, px + 11, py + 9, 2, 2, '#ffe080'); }
+  else if (t === 'stat') { rct(c, px + 4, py + 11, 8, 4, '#8a8a98'); rct(c, px + 6, py + 5, 4, 7, '#b0b0c0'); ell(c, px + 8, py + 4, 2.4, 2.4, '#b0b0c0'); rct(c, px + 10, py + 6, 1, 6, '#f2d27a'); poly(c, '#f2d27a', px + 10, py + 5, px + 12, py + 5, px + 11, py + 3); }
+  else if (t === 'wall') { rct(c, px + 1, py + 6, 14, 9, '#7c7c8c'); for (let i = 0; i < 4; i++) rct(c, px + 1 + i * 4, py + 4, 3, 3, '#9a9aaa'); rct(c, px + 6, py + 9, 4, 6, '#3a3a48'); rct(c, px + 7, py + 8, 2, 2, '#4a8aff'); }
+  else if (t === 'well') { ell(c, px + 8, py + 11, 6, 4, '#7a7a8a'); ell(c, px + 8, py + 10, 4.5, 2.8, '#5a3ad0'); ell(c, px + 8, py + 8, 2, 4, 'rgba(180,140,255,.55)'); }
+  c.restore();
+}
+let FORTS = null;
+function drawFort(c, px, py, own) {
+  if (!okI('castle')) return;
+  if (!FORTS) { const im = IM.castle, t = mkCv(im.naturalWidth, im.naturalHeight), x = t.getContext('2d'); x.drawImage(im, 0, 0); x.globalCompositeOperation = 'source-atop'; x.fillStyle = 'rgba(90,90,110,.38)'; x.fillRect(0, 0, t.width, t.height); FORTS = t; }
+  const im = own ? IM.castle : FORTS, w = 34, h = w * (im.naturalHeight || im.height) / (im.naturalWidth || im.width); ell(c, px + 8, py + 15, 15, 2.6, 'rgba(0,0,0,.25)'); c.drawImage(im, px + 8 - w / 2, py + 16 - h, w, h);
+  if (own) { rct(c, px + 14, py - 2, 1, 9, '#ddd'); poly(c, '#2a6aff', px + 15, py - 2, px + 19, py, px + 15, py + 2); }
+}
+const _dv41 = drawView;
+drawView = function (c, vw, vh, z, hs) {
+  const s = Rules.s, ch = s.chests, extra = [];
+  for (const q of s.sites || []) extra.push({ x: q.x, y: q.y, site: q }); if (s.fort) extra.push({ x: s.fort.x, y: s.fort.y, fort: s.fort });
+  if (!extra.length) { _dv41(c, vw, vh, z, hs); fogOver(c, vw, vh); return; }
+  const cm = viewCam(vw, vh); s.chests = ch.concat(extra); const _dc = drawChest;
+  drawChest = function (cc, px, py) {
+    const k = extra.find(q => ((q.x - cm.x) * T) === px && ((q.y - cm.y) * T) === py);
+    if (k && k.site) drawSite(cc, px, py, k.site); else if (k && k.fort) drawFort(cc, px, py, k.fort.own); else _dc(cc, px, py);
+  };
+  try { _dv41(c, vw, vh, z, hs); } finally { drawChest = _dc; s.chests = ch; }
+  fogOver(c, vw, vh);
+};
+function drawMini(c) {
+  const s = Rules.s; if (!s || !s.seen) return; const cv = mmEnsure(s), x0 = 304, y0 = 38;
+  c.fillStyle = 'rgba(8,4,2,.72)'; c.fillRect(x0 - 3, y0 - 3, MW * 2 + 6, MH * 2 + 6); c.strokeStyle = GOLD2; c.lineWidth = 1; c.strokeRect(x0 - 2.5, y0 - 2.5, MW * 2 + 5, MH * 2 + 5);
+  c.drawImage(cv, x0, y0);
+  const dot = (x, y, col, z) => { c.fillStyle = col; c.fillRect(x0 + x * 2 - (z || 0), y0 + y * 2 - (z || 0), 2 + 2 * (z || 0), 2 + 2 * (z || 0)); };
+  dot(CASTLE.x, CASTLE.y, '#ffffff', 1); if (s.seen[ENEMY.y][ENEMY.x]) dot(ENEMY.x, ENEMY.y, '#e02020', 1);
+  if (s.fort && s.seen[s.fort.y][s.fort.x]) dot(s.fort.x, s.fort.y, s.fort.own ? '#4a8aff' : '#f2d27a', 1);
+  for (const m of s.mines || []) if (m.own) dot(m.x, m.y, '#4a8aff');
+  const cm = viewCam(13, 8); c.strokeStyle = 'rgba(255,255,255,.8)'; c.strokeRect(x0 + cm.x * 2 + .5, y0 + cm.y * 2 + .5, 13 * 2 - 1, 8 * 2 - 1);
+  dot(s.hero.x, s.hero.y, '#2a6aff', 1);
+}
+const _dtp41 = drawTop;
+drawTop = function () {
+  if (ui.panel === 'levelup') { drawLevelTop(); return; }
+  _dtp41(); if (ui.panel === 'items') return; drawMini(tc);
+  const s = Rules.s; if (s.buffs && s.buffs.length) { const b = s.buffs[0]; tc.fillStyle = 'rgba(12,6,3,.62)'; tc.fillRect(14, 32, 150, 13); txt(tc, b.n + ' +' + b.v + ' ' + STATNAME[b.k].toLowerCase() + ' (' + b.d + 'd)', 20, 39, 9, '#9be09b', 'left', 600); }
+};
+const _db41 = drawBottom;
+drawBottom = function () { if (ui.panel === 'levelup') drawLevelBottom(); else _db41(); };
+const _mt41 = mapTap;
+mapTap = function (tx, ty) { if (ui.panel === 'levelup') return; _mt41(tx, ty); };
+const _r41 = render;
+render = function () { const h = Rules.s && Rules.s.hero; if (h && ui.mode === 'map' && (h.pend | 0) > 0 && ui.panel !== 'levelup') ui.panel = 'levelup'; _r41(); };
+/* ----- start / laden ----- */
+const _in41 = Rules.init;
+Rules.init = function (hid) {
+  _in41.call(this, hid); const s = this.s; s.stats = newStats(); s.seen = seenGrid(); s.fogV = 0; s.buffs = []; s.sites = []; s.fort = null; MM.s = null;
+  if (!legacyMap()) placeExtras(s); TERR = null; revealAll(s);
+};
+const _lg41 = loadGame;
+loadGame = function () {
+  const ok = _lg41(); if (!ok) return false; const s = Rules.s;
+  if (!s.stats) s.stats = newStats(); if (!s.buffs) s.buffs = []; if (!s.seen) { s.seen = seenGrid(); } if (!s.sites) { s.sites = []; s.fort = null; if (!legacyMap()) placeExtras(s); }
+  MM.s = null; TERR = null; revealAll(s); return true;
+};
+try { globalThis.__v41 = { placeExtras, reveal, revealAll, visitSite, pickSkill, favStat, drawMini, fogOver, drawLevelTop, drawLevelBottom, drawEndTop, drawEndBottom, vaultReward }; } catch (e) {}
+
 ui.hasSave = hasSave(); ui.mode = 'title';
 render();
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
