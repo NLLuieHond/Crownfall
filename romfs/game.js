@@ -1,3 +1,4 @@
+
 /* ============ SPELREGELS (geen tekenwerk, later om te zetten naar C) ============ */
 const MW = 40, MH = 30;
 const HEROES = {
@@ -701,6 +702,7 @@ function walk() {
     if (ui.mode === 'battle') { ui.walking = false; ui.path = null; return; }
     if (h.x !== n[0] || h.y !== n[1]) { ui.path = null; stop(); return; }
     P.tiles.shift(); if (!P.tiles.length) ui.path = null;
+    sfx((STEPN++ & 1) ? 'step2' : 'step');
     if (Rules.onCastle()) { ui.path = null; stop(); return; }
     render(); setTimeout(tick, 110);
   };
@@ -1875,7 +1877,7 @@ for (const id of ['spear', 'bow', 'knight']) {
   Object.defineProperty(BASEU[id], 'name', { configurable: true, get() { return UNAME[pFac()][id][0]; }, set(v) {} });
 }
 /* ===== Gevechtsanimaties en geluidseffecten ===== */
-const SFXN = ['bow', 'arrowhit', 'slash', 'bash', 'claw', 'smash', 'death', 'bolt', 'haste', 'shield', 'fury', 'heal', 'rain', 'drain', 'dheal', 'curse', 'step', 'win', 'lose', 'tick'];
+const SFXN = ['bow', 'arrowhit', 'slash', 'bash', 'claw', 'smash', 'death', 'bolt', 'haste', 'shield', 'fury', 'heal', 'rain', 'drain', 'dheal', 'curse', 'step', 'win', 'lose', 'tick', 'step2'];
 const SFXC = { on: true, ctx: null, buf: {} };
 try { SFXC.on = localStorage.getItem('crownfall_sfx') !== '0'; } catch (e) {}
 function sfxInit() {
@@ -1911,10 +1913,11 @@ function fxStep() {
   else { FX.end = 0; render(); const b = Battle.b; if (b.done && !b.snd) { b.snd = 1; sfx(b.done === 1 ? 'win' : 'lose'); } }
 }
 const STY = { spear: ['slash', 'slash'], bow: ['arrow', 'bow'], knight: ['bash', 'bash'], goblin: ['claw', 'claw'], wolf: ['bite', 'claw'], direwolf: ['bite', 'claw'], ogre: ['smash', 'smash'], warlord: ['smash', 'smash'], gobarcher: ['arrow', 'bow'] };
+let STEPN = 0;
 function fxMove(u, a, b) {
   const d = Math.max(1, hdist({ x: a[0], y: a[1] }, { x: b[0], y: b[1] })), T = fxT(), dur = Math.min(560, 110 * d + 50);
   fxAdd({ k: 'move', u, a, b }, T, dur);
-  for (let i = 0; i < Math.min(d, 4); i++) fxSnd('step', T + i * (dur / Math.min(d, 4)));
+  for (let i = 0; i < Math.min(d, 4); i++) fxSnd((STEPN++ & 1) ? 'step2' : 'step', T + i * (dur / Math.min(d, 4)));
 }
 function fxCheckMove(u) {
   if (u._px == null) { u._px = u.x; u._py = u.y; return; }
