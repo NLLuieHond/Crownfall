@@ -1469,11 +1469,39 @@ function placeMines(s) {
   }
   Rules.s = seen;
 }
+/* ===== Willekeurige plaatsing: kisten, vijanden en mijnen staan bij elk nieuw spel ergens anders ===== */
+const legacyMap = () => typeof globalThis !== 'undefined' && !!globalThis.__legacyMap; /* alleen voor de tests */
+function placeRandom(s) {
+  const r = rng((Math.random() * 2147483647) | 0), M = s.map;
+  const boss = s.foes.filter(f => f.boss); s.foes = boss.slice(); s.chests = []; s.mines = [];
+  const reach = Array.from({ length: MH }, () => Array(MW).fill(false)), q = [[CASTLE.x, CASTLE.y]]; reach[CASTLE.y][CASTLE.x] = true;
+  while (q.length) { const p = q.pop(); for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const x = p[0] + d[0], y = p[1] + d[1]; if (x < 0 || y < 0 || x >= MW || y >= MH || reach[y][x] || M[y][x] === WATER || M[y][x] === MOUNT) continue; reach[y][x] = true; q.push([x, y]); } }
+  const pts = [[ENEMY.x, ENEMY.y]];
+  const near = (x, y, type, rad) => { for (let j = -rad; j <= rad; j++) for (let i = -rad; i <= rad; i++) { const a = x + i, b = y + j; if (a >= 0 && b >= 0 && a < MW && b < MH && M[b][a] === type) return true; } return false; };
+  const free = (x, y, gap) => reach[y][x] && M[y][x] === GRASS && !pts.some(p => Math.hypot(p[0] - x, p[1] - y) < gap) && Math.hypot(x - CASTLE.x, y - CASTLE.y) >= 3 && Math.hypot(x - ENEMY.x, y - ENEMY.y) >= 4;
+  const pick = (ok, gaps) => { /* probeer eerst een grote afstand, daarna steeds kleiner */
+    for (const gap of gaps) { const c = []; for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (ok(x, y) && free(x, y, gap)) c.push([x, y]); if (c.length) return c[(r() * c.length) | 0]; }
+    return null;
+  };
+  /* mijnen: erts en kristal bij bergen, hout bij bossen; twee van elk (een dichtbij, een ver weg) */
+  for (const second of [0, 1]) for (const t of ['wood', 'ore', 'crystal']) {
+    const dist = (x, y) => Math.hypot(x - CASTLE.x, y - CASTLE.y), type = t === 'wood' ? FOREST : MOUNT;
+    const rangeOk = (x, y) => { const d = dist(x, y); return d >= 6 && (second ? d >= 15 : d <= 20); };
+    let p = pick((x, y) => rangeOk(x, y) && near(x, y, type, 1), [9, 7, 5]) || pick((x, y) => rangeOk(x, y) && near(x, y, type, 2), [9, 7, 5, 3]) || pick((x, y) => rangeOk(x, y), [7, 4, 2]);
+    if (!p) continue;
+    pts.push(p); const g = MINE[t].g; s.mines.push({ x: p[0], y: p[1], t, own: 0 }); s.foes.push({ x: p[0], y: p[1], id: g[0], n: second ? Math.round(g[1] * 1.7) : g[1], guard: true });
+  }
+  const FT = [['goblin', 20], ['wolf', 8], ['ogre', 4]];
+  let nf = 0; while (nf < 8) { const p = pick((x, y) => Math.hypot(x - CASTLE.x, y - CASTLE.y) > 8, [6, 5, 4, 3, 2]); if (!p) break; pts.push(p); const t = FT[nf % 3]; s.foes.push({ x: p[0], y: p[1], id: t[0], n: t[1] }); nf++; }
+  while (s.chests.length < 14) { const p = pick(() => true, [5, 4, 3, 2, 1]); if (!p) break; pts.push(p); s.chests.push({ x: p[0], y: p[1] }); }
+}
 const _init5 = Rules.init;
 Rules.init = function (h) {
   _init5.call(this, h); const s = this.s; s.res = { wood: 5, ore: 5, crystal: 0 }; s.up = {};
+  if (!legacyMap()) placeRandom(s);
   const CT = ['gold', 'wood', 'item', 'ore', 'gold', 'crystal', 'item', 'wood', 'gold', 'ore', 'item', 'crystal', 'gold', 'item']; s.chests.forEach((k, i) => { k.r = CT[i % CT.length]; });
-  placeMines(s); applyUps();
+  if (legacyMap()) placeMines(s);
+  applyUps();
 };
 const _lg5 = loadGame;
 loadGame = function () {
