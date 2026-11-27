@@ -36,16 +36,25 @@ jobs:
           set -o pipefail
           {
           set -x
-          apt-get update && apt-get install -y curl unzip jq
-          rel() { curl -fsSL "https://api.github.com/repos/$1/releases/latest"; }
-          MR=$(rel 3DSGuy/Project_CTR | jq -r '.assets[].browser_download_url' | grep -i ubuntu | grep -i x86_64 | head -1)
-          curl -fsSL "$MR" -o makerom.zip && unzip -o makerom.zip && chmod +x makerom
-          apt-get install -y git g++
+          apt-get update && apt-get install -y git g++ make
+          # bannertool en makerom worden hier zelf gebouwd (de kant-en-klare versies draaien niet op deze computer)
           git clone --depth 1 https://github.com/carstene1ns/3ds-bannertool bt-src
           g++ -std=c++17 -O2 -w -Ibt-src/source -Ibt-src/source/pc -DSTBI_ONLY_PNG -DSTBI_NO_LINEAR -DSTBI_NO_STDIO -DSTB_VORBIS_NO_PUSHDATA_API -DSTB_VORBIS_NO_STDIO -DDR_WAV_NO_STDIO -DVERSION='"1.2.3"' $(find bt-src/source -name '*.cpp') -o bannertool
-          BT=./bannertool
-          "$BT" makebanner -i banner.png -a silence.wav -o banner.bnr
-          "$BT" makesmdh -s "Crownfall" -l "Strategiespel" -p "Crownfall" -i icon.png -o icon.icn
+          git clone https://github.com/3DSGuy/Project_CTR ctr-src
+          git -C ctr-src checkout d52c2b0e788c2d085763d7c5dcc4b2edd9ffb7d8 || true
+          make -C ctr-src/makerom -j4
+          cp ctr-src/makerom/bin/makerom ./makerom
+          # het rsf-bestand aanpassen voor de nieuwe makerom
+          python3 - <<'PY'
+          s = open('crownfall.rsf').read()
+          s = '\n'.join(l for l in s.split('\n') if 'MediaFootPrint' not in l)
+          if 'SystemCallAccess' not in s:
+              sc = "  SystemCallAccess:\n" + "".join("    %s: %s\n" % tuple(x.split(':')) for x in "ArbitrateAddress:34 Break:60 CancelTimer:28 ClearEvent:25 ClearTimer:29 CloseHandle:35 ConnectToPort:45 ControlMemory:1 CreateAddressArbiter:33 CreateEvent:23 CreateMemoryBlock:30 CreateMutex:19 CreateSemaphore:21 CreateThread:8 CreateTimer:26 DuplicateHandle:39 ExitProcess:3 ExitThread:9 GetCurrentProcessorNumber:17 GetHandleInfo:41 GetProcessId:53 GetProcessIdOfThread:54 GetResourceLimit:56 GetResourceLimitCurrentValues:58 GetResourceLimitLimitValues:57 GetSystemInfo:42 GetSystemTick:40 GetThreadContext:59 GetThreadId:55 GetThreadIdealProcessor:15 GetThreadPriority:11 MapMemoryBlock:31 OutputDebugString:61 QueryMemory:2 ReleaseMutex:20 ReleaseSemaphore:22 SendSyncRequest1:46 SendSyncRequest2:47 SendSyncRequest3:48 SendSyncRequest4:49 SendSyncRequest:50 SetThreadPriority:12 SetTimer:27 SignalEvent:24 SleepThread:10 UnmapMemoryBlock:32 WaitSynchronization1:36 WaitSynchronizationN:37".split())
+              s = s.replace("  IdealProcessor", sc + "  IdealProcessor", 1)
+          open('crownfall.rsf', 'w').write(s)
+          PY
+          ./bannertool makebanner -i banner.png -a silence.wav -o banner.bnr
+          ./bannertool makesmdh -s "Crownfall" -l "Strategiespel" -p "Crownfall" -i icon.png -o icon.icn
           ./makerom -f cia -o crownfall.cia -elf crownfall.elf -rsf crownfall.rsf -icon icon.icn -banner banner.bnr -exefslogo -target t -DAPP_ROMFS=romfs
           ls -la crownfall.cia
           } 2>&1 | tee cia.log
