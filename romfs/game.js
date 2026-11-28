@@ -1122,9 +1122,9 @@ function drawHeroTab() {
   rowBg(12, 144, 296, 25); txt(bc, D.power, 18, 152, 10, '#9fe08f', 'left', 600);
   txt(bc, 'Spreuk: ' + SP.n + ' (' + SP.c + ')  ·  ' + SP.desc, 18, 163, 10, '#fbe9b0', 'left', 600);
   rowBg(12, 171, 296, 14); txt(bc, 'Leger: ' + armyLine(), 18, 181, 9, '#e8eaf2', 'left', 600);
-  if (dn) button('Terughalen (' + reviveCost() + ')', 12, 187, 104, 18, () => Rules.revive(), Rules.s.gold >= reviveCost()); else button('Uitrusting', 12, 187, 104, 18, () => { ui.panel = 'items'; ui.sel = null; ui.ipage = 0; }, true);
-  button('Opties', 120, 187, 88, 18, () => openOptions(), true);
-  button(ui.cnf ? 'Zeker weten?' : 'Nieuw spel', 214, 187, 94, 18, () => { if (ui.cnf) newGame(); else { ui.cnf = true; Rules.s.msg = 'Tik nogmaals om opnieuw te beginnen.'; } }, true);
+  if (dn) button('Terughalen (' + reviveCost() + ')', 12, 187, IS3DS ? 144 : 104, 18, () => Rules.revive(), Rules.s.gold >= reviveCost()); else button('Uitrusting', 12, 187, IS3DS ? 144 : 104, 18, () => { ui.panel = 'items'; ui.sel = null; ui.ipage = 0; }, true);
+  if (!IS3DS) button('Opties', 120, 187, 88, 18, () => openOptions(), true);
+  button(ui.cnf ? 'Zeker weten?' : 'Nieuw spel', IS3DS ? 164 : 214, 187, IS3DS ? 144 : 94, 18, () => { if (ui.cnf) newGame(); else { ui.cnf = true; Rules.s.msg = 'Tik nogmaals om opnieuw te beginnen.'; } }, true);
 }
 drawBattleBottom = function () {
   const b = Battle.b, u = b.cur, H = Rules.s.hero; buttons = [];
@@ -1619,6 +1619,7 @@ drawCastlePanel = function () {
   } else for (const id in UNITS) {
     const u = UNITS[id], lock = u.req && !s.built[u.req]; rowBg(12, y, 296, 36);
     const ic = ICONK(id); if (okI(ic)) { const im = IM[ic], k = Math.min(30 / im.naturalWidth, 32 / im.naturalHeight); bc.drawImage(im, 16, y + 18 - im.naturalHeight * k / 2, im.naturalWidth * k, im.naturalHeight * k); }
+    unitBadge(id, y);
     txt(bc, u.name, 52, y + 12, 13, '#fff', 'left', 700);
     txt(bc, lock ? 'Bouw eerst: ' + BUILD[u.req].name : (s.up[id] ? 'Verbeterde eenheid' : u.desc), 52, y + 26, 9, '#f2d27a', 'left', 'italic 600');
     if (!lock) { txt(bc, 'voorraad ' + s.stock[id], 236, y + 12, 10, '#c9b890', 'right', 600); txt(bc, u.cost + ' goud', 236, y + 26, 10, '#fbe9b0', 'right', 700); }
@@ -2727,7 +2728,7 @@ function optTitle() {
 function drawOptTop() {
   if (Rules.s && OPT.back && OPT.back.mode !== 'title') { drawView(tc, 25, 15, 1); tc.fillStyle = 'rgba(8,4,2,.82)'; tc.fillRect(0, 0, 400, 240); frame(tc, 400, 240); }
   else { drawTitleTop(); tc.fillStyle = 'rgba(8,4,2,.84)'; tc.fillRect(0, 0, 400, 240); frame(tc, 400, 240); }
-  txt(tc, 'Opties', 200, 110, 26, '#f2d27a', 'center', 700); txt(tc, 'Sla je spel hier zelf op: dat gebeurt niet meer vanzelf.', 200, 140, 11, '#fbe9b0', 'center', 600);
+  txt(tc, 'Opties', 200, 110, 26, '#f2d27a', 'center', 700); txt(tc, 'Sla je spel hier zelf op: dat gebeurt niet meer vanzelf.', 200, 140, 11, '#fbe9b0', 'center', 600); if (IS3DS) { txt(tc, 'START: opties   L: einde beurt', 200, 170, 11, '#c9b890', 'center', 600); txt(tc, 'SELECT: afsluiten (zonder op te slaan)', 200, 186, 11, '#ff9a8a', 'center', 600); }
 }
 function drawOptBottom() {
   buttons = []; mapBox = null; panelBg(); txt(bc, 'Opties', 160, 24, 16, '#f2d27a', 'center', 700);
@@ -2740,6 +2741,26 @@ function drawOptBottom() {
 const _r52 = render;
 render = function () { if (ui.mode === 'options') { musicFor(0); drawOptTop(); drawOptBottom(); return; } _r52(); };
 try { globalThis.__v52 = { OPT, openOptions, closeOptions, optSave, optTitle }; } catch (e) {}
+/* ================= v53: START = opties, L = einde beurt, aantal eenheden in het kasteel, skeletlegers voor de duistere vijand ================= */
+const IS3DS = typeof __loadFont === 'function';
+function unitBadge(id, y) {
+  const have = Rules.s.army[id] | 0; if (have <= 0) return;
+  const t = '' + have, w = 7 + 5 * t.length;
+  bc.fillStyle = 'rgba(10,4,6,.92)'; bc.fillRect(47 - w, y + 23, w, 11); bc.strokeStyle = GOLD2; bc.lineWidth = 1; bc.strokeRect(47.5 - w, y + 23.5, w - 1, 10);
+  txt(bc, t, 45, y + 29, 9, '#fff', 'right', 700);
+}
+addEventListener('keydown', e => {
+  const k = (e.key || '').toLowerCase(); if (k !== 'escape' && k !== 'o') return;
+  if (ui.mode === 'map') { if (ui.walking) { ui.path = null; return; } openOptions(); render(); }
+  else if (ui.mode === 'options') { closeOptions(); render(); }
+  else if (ui.mode === 'sound') { closeSound(); render(); }
+});
+/* de duistere vijandelijke helden voeren nu skeletkrijgers, skeletschutters en doodsridders aan (zelfde sterkte als eerst) */
+DARK.forEach(id => {
+  const H = HEROES[id]; if (H.earmy) return; const orig = H.army, to = ['spear', 'bow', 'knight'];
+  H.earmy = d => { const a = orig(d), P = armyPower(a); return a.map((x, i) => { const sh = unitValue(x.id) * x.n / P; return { id: to[i], n: Math.max(1, Math.round(P * sh / unitValue(to[i]))) }; }); };
+});
+try { globalThis.__v53 = { IS3DS, unitBadge }; } catch (e) {}
 ui.hasSave = hasSave(); ui.mode = 'title';
 render();
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
