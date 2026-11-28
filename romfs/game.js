@@ -706,7 +706,8 @@ function findPath(sx, sy, tx, ty) {
 }
 function mapTap(tx, ty) {
   const s = Rules.s, h = s.hero;
-  if (ui.walking || ui.mode !== 'map' || tx < 0 || ty < 0 || tx >= MW || ty >= MH) return;
+  if (ui.walking) { ui.path = null; return; } /* tik tijdens het lopen = stoppen */
+  if (ui.mode !== 'map' || tx < 0 || ty < 0 || tx >= MW || ty >= MH) return;
   if (Rules.s.hero.down > 0) { Rules.s.msg = reviveMsg(); render(); return; }
   if (tx === h.x && ty === h.y) { ui.path = null; ui.cam = null; if (Rules.onCastle()) ui.panel = 'castle'; render(); return; }
   if (ui.path && ui.path.tx === tx && ui.path.ty === ty) { walk(); return; }
@@ -728,7 +729,7 @@ function walk() {
     P.tiles.shift(); if (!P.tiles.length) ui.path = null;
     if ((MAPSTEP++ & 1) === 0) sfx((STEPN++ & 1) ? 'step2' : 'step'); /* om de andere tegel: rustiger tempo */
     if (Rules.onCastle()) { ui.path = null; stop(); return; }
-    render(); setTimeout(tick, 110);
+    render(); setTimeout(tick, 70);
   };
   tick();
 }
@@ -777,7 +778,8 @@ function drawWalkBottom() {
 const _db0 = drawBottom;
 drawBottom = function () { if (castleOpen()) { mapBox = null; _db0(); } else drawWalkBottom(); };
 cvTop.addEventListener('pointerdown', e => {
-  if (!ui.topTouch || ui.mode !== 'map' || ui.walking || (castleOpen())) return;
+  if (ui.walking && ui.mode === 'map') { ui.path = null; return; }
+  if (!ui.topTouch || ui.mode !== 'map' || (castleOpen())) return;
   const r = cvTop.getBoundingClientRect(), b = 6, c0 = cam();
   const x = (e.clientX - r.left - b) * 400 / (r.width - 2 * b), y = (e.clientY - r.top - b) * 240 / (r.height - 2 * b);
   if (x < 0 || y < 0 || x >= 400 || y >= 240) return;
@@ -911,7 +913,8 @@ drawWalkBottom = function () {
 };
 const tmXY = e => { const r = cvBot.getBoundingClientRect(), b = 6; return [(e.clientX - r.left - b) * 320 / (r.width - 2 * b), (e.clientY - r.top - b) * 240 / (r.height - 2 * b)]; };
 cvBot.addEventListener('pointerdown', e => {
-  if (ui.mode !== 'map' || ui.walking || ui.panel === 'items' || (castleOpen())) return;
+  if (ui.walking && ui.mode === 'map') { ui.path = null; return; }
+  if (ui.mode !== 'map' || ui.panel === 'items' || (castleOpen())) return;
   const p = tmXY(e); if (p[0] < 0 || p[0] >= 320 || p[1] < 0 || p[1] >= 192) return;
   const c = viewCam(TV.w, TV.h); ui.drag = { sx: p[0], sy: p[1], cx: c.x + (TV.w >> 1), cy: c.y + (TV.h >> 1), moved: false };
 });
@@ -1120,7 +1123,7 @@ function drawHeroTab() {
   txt(bc, 'Spreuk: ' + SP.n + ' (' + SP.c + ')  ·  ' + SP.desc, 18, 163, 10, '#fbe9b0', 'left', 600);
   rowBg(12, 171, 296, 14); txt(bc, 'Leger: ' + armyLine(), 18, 181, 9, '#e8eaf2', 'left', 600);
   if (dn) button('Terughalen (' + reviveCost() + ')', 12, 187, 104, 18, () => Rules.revive(), Rules.s.gold >= reviveCost()); else button('Uitrusting', 12, 187, 104, 18, () => { ui.panel = 'items'; ui.sel = null; ui.ipage = 0; }, true);
-  button('Geluid', 120, 187, 88, 18, () => openSound(), true);
+  button('Opties', 120, 187, 88, 18, () => openOptions(), true);
   button(ui.cnf ? 'Zeker weten?' : 'Nieuw spel', 214, 187, 94, 18, () => { if (ui.cnf) newGame(); else { ui.cnf = true; Rules.s.msg = 'Tik nogmaals om opnieuw te beginnen.'; } }, true);
 }
 drawBattleBottom = function () {
@@ -1162,8 +1165,8 @@ function drawEndBottom() {
   button('Nieuw spel', 40, 100, 240, 28, () => newGame(), true);
   if (Rules.s.won) button('Verder spelen', 40, 140, 240, 28, () => { Rules.s.endSeen = true; ui.mode = 'map'; }, true);
 }
-const SAVEKEY = 'heroes3ds-save-v1'; let lastSave = 0;
-function saveGame() { try { if (ui.mode !== 'battle' && ui.mode !== 'pick' && ui.mode !== 'title' && Rules.s) localStorage.setItem(SAVEKEY, JSON.stringify(Rules.s)); } catch (e) {} }
+const SAVEKEY = 'heroes3ds-save-v1'; let lastSave = 0, lastJ = '';
+function saveGame() { try { if (ui.mode !== 'battle' && ui.mode !== 'pick' && ui.mode !== 'title' && Rules.s) { const j = JSON.stringify(Rules.s); if (j !== lastJ) { localStorage.setItem(SAVEKEY, j); lastJ = j; } } } catch (e) {} }
 function loadGame() {
   try {
     const j = localStorage.getItem(SAVEKEY); if (!j) return false; const s = JSON.parse(j);
@@ -1172,13 +1175,10 @@ function loadGame() {
   } catch (e) { return false; }
 }
 function newGame() {
-  try { localStorage.removeItem(SAVEKEY); } catch (e) {}
   Object.assign(ui, { mode: 'pick', pstep: 'fac', fac: 'good', pick: 0, panel: 'castle', tab: 'units', path: null, cam: null, walking: false, cnf: false }); render();
 }
 const _r0 = render;
-render = function () { _r0(); const t = Date.now(); if (t - lastSave > 1500) { lastSave = t; saveGame(); } };
-if (typeof addEventListener === 'function') addEventListener('pagehide', saveGame);
-if (document.addEventListener) document.addEventListener('visibilitychange', () => { if (document.hidden) saveGame(); });
+render = function () { _r0(); };
 /* ===== De vijandelijke held en het verslagen-zijn van helden ===== */
 const foeStacks = f => f.stacks || [{ id: f.id, n: f.n }];
 const foeGold = f => foeStacks(f).reduce((a, s) => a + s.n * 20, 0);
@@ -1277,7 +1277,6 @@ Battle.nr = function () {
 const _dbt1 = drawBattleTop;
 drawBattleTop = function () { _dbt1(); portrait(tc, Rules.s.hero.id, 10, 196, 30, 34, false); if (Battle.b && Battle.b.foe.hero) portrait(tc, Rules.s.eh.id, 362, 10, 30, 34, false); };
 function startGame(id) {
-  try { localStorage.removeItem(SAVEKEY); } catch (e) {}
   Rules.init(id); Object.assign(ui, { mode: 'map', panel: 'castle', tab: 'units', path: null, cam: null, walking: false, cnf: false }); render();
 }
 function armyText(a) { const n = { spear: 'zonnewachter', bow: 'dageraadschutter', knight: 'lichtgeest' }; const p = Object.keys(n).filter(k => a[k] > 0).map(k => a[k] + ' ' + n[k] + (a[k] > 1 ? (k === 'bow' ? 's' : 'en') : '')); return p.join(', '); }
@@ -2054,7 +2053,7 @@ const _dbb1 = drawBattleBottom;
 drawBattleBottom = function () { _dbb1(); if (fxBusy()) buttons = []; };
 pump = function () {
   if (ui.mode !== 'battle' || Battle.b.done || Battle.b.cur.side !== 1 || busyT) return;
-  busyT = setTimeout(() => { busyT = 0; Battle.ai(); render(); pump(); }, Math.max(450, FX.end - fnow() + 300));
+  busyT = setTimeout(() => { busyT = 0; Battle.ai(); render(); pump(); }, Math.max(300, FX.end - fnow() + 150));
 };
 /* ---- positie, vasthouden van oude aantallen en verdwijnen ---- */
 function fxHold(s, now) { for (const e of FX.l) if (e.u === s && e.nB != null && now < e.t0) return e; return null; }
@@ -2307,7 +2306,7 @@ function placeExtras(s) {
   const R0 = reachAll();
   const clear = (x, y, gap) => !objs().some(p => hyp(p[0] - x, p[1] - y) < gap);
   const pick = (gap0, ok) => { for (const gap of [gap0, gap0 - 1, gap0 - 2, 2]) { const r = pick1(gap, ok); if (r) return r; } return null; };
-  const pick1 = (gap, ok) => { const c = []; for (let y = 1; y < MH - 1; y++) for (let x = 1; x < MW - 1; x++) if (R0[y][x] && M[y][x] === GRASS && hyp(x - CASTLE.x, y - CASTLE.y) >= 4 && hyp(x - ENEMY.x, y - ENEMY.y) >= 5 && (!ok || ok(x, y)) && clear(x, y, gap)) c.push([x, y]); return c.length ? c[(r() * c.length) | 0] : null; };
+  const pick1 = (gap, ok) => { const O = objs(), c = []; for (let y = 1; y < MH - 1; y++) for (let x = 1; x < MW - 1; x++) if (R0[y][x] && M[y][x] === GRASS && hyp(x - CASTLE.x, y - CASTLE.y) >= 4 && hyp(x - ENEMY.x, y - ENEMY.y) >= 5 && (!ok || ok(x, y))) { let f = true; for (let i = 0; i < O.length; i++) { const dx = O[i][0] - x, dy = O[i][1] - y; if (dx * dx + dy * dy < gap * gap) { f = false; break; } } if (f) c.push([x, y]); } return c.length ? c[(r() * c.length) | 0] : null; };
   /* Wachtburcht: tweede kasteel, halverwege de kaart, bewaakt */
   const fp = pick(6, (x, y) => { const d = hyp(x - CASTLE.x, y - CASTLE.y); return d >= 12 && d <= 22; }) || pick(4, (x, y) => hyp(x - CASTLE.x, y - CASTLE.y) >= 10);
   if (fp) { s.fort = { x: fp[0], y: fp[1], own: 0 }; s.foes.push({ x: fp[0], y: fp[1], id: 'ogre', n: 8, guard: true, fort: true }); }
@@ -2716,6 +2715,31 @@ drawSoundBottom = function () {
 };
 try { globalThis.__v49 = { castLim, castLeft, GSPELLS, learnSpell, guildBuild, heroSpells: H => heroSpells(H), AUD, drawGuildTab }; } catch (e) {}
 
+/* ================= v52: optiesmenu (opslaan, geluid, titelscherm); geen automatisch opslaan meer ================= */
+const OPT = { back: null, msg: '', cnf: false };
+function openOptions() { OPT.back = { mode: ui.mode, panel: ui.panel, tab: ui.tab }; OPT.msg = ''; OPT.cnf = false; ui.mode = 'options'; }
+function closeOptions() { const b = OPT.back || { mode: 'map', panel: 'castle' }; ui.mode = b.mode; ui.panel = b.panel; if (b.tab) ui.tab = b.tab; OPT.back = null; OPT.cnf = false; }
+function optSave() { if (!Rules.s) return; const prev = ui.mode; ui.mode = 'map'; lastJ = ''; saveGame(); ui.mode = prev; let ok = false; try { ok = !!localStorage.getItem(SAVEKEY); } catch (e) {} OPT.msg = ok ? 'Spel opgeslagen (dag ' + Rules.s.day + ').' : 'Opslaan is niet gelukt.'; }
+function optTitle() {
+  if (!OPT.cnf) { OPT.cnf = true; OPT.msg = 'Niet-opgeslagen voortgang gaat verloren. Tik nogmaals.'; return; }
+  OPT.cnf = false; OPT.back = null; ui.hasSave = hasSave(); ui.back = null; Object.assign(ui, { mode: 'title', walking: false, path: null });
+}
+function drawOptTop() {
+  if (Rules.s && OPT.back && OPT.back.mode !== 'title') { drawView(tc, 25, 15, 1); tc.fillStyle = 'rgba(8,4,2,.82)'; tc.fillRect(0, 0, 400, 240); frame(tc, 400, 240); }
+  else { drawTitleTop(); tc.fillStyle = 'rgba(8,4,2,.84)'; tc.fillRect(0, 0, 400, 240); frame(tc, 400, 240); }
+  txt(tc, 'Opties', 200, 110, 26, '#f2d27a', 'center', 700); txt(tc, 'Sla je spel hier zelf op: dat gebeurt niet meer vanzelf.', 200, 140, 11, '#fbe9b0', 'center', 600);
+}
+function drawOptBottom() {
+  buttons = []; mapBox = null; panelBg(); txt(bc, 'Opties', 160, 24, 16, '#f2d27a', 'center', 700);
+  button('Opslaan', 50, 44, 220, 32, () => optSave(), true);
+  button('Geluid', 50, 84, 220, 32, () => openSound(), true);
+  button(OPT.cnf ? 'Zeker weten?' : 'Titelscherm', 50, 124, 220, 32, () => optTitle(), true);
+  if (OPT.msg) txt(bc, OPT.msg, 160, 170, 10, OPT.cnf ? '#ff9a8a' : '#9fe08f', 'center', 700);
+  button('Terug', 50, 190, 220, 34, () => closeOptions(), true);
+}
+const _r52 = render;
+render = function () { if (ui.mode === 'options') { musicFor(0); drawOptTop(); drawOptBottom(); return; } _r52(); };
+try { globalThis.__v52 = { OPT, openOptions, closeOptions, optSave, optTitle }; } catch (e) {}
 ui.hasSave = hasSave(); ui.mode = 'title';
 render();
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
