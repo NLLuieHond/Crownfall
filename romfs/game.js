@@ -136,7 +136,7 @@ const Rules = {
 };
 
 /* ============ GEVECHT (regels, hexagonaal zoals Heroes III) ============ */
-const BC = 8, BR = 5, RANGE = 4;
+const BC = 8, BR = 5, RANGE = 4, rangeOf = u => RANGE + (u.side === 0 && Rules.s && Rules.s.up && Rules.s.up[u.id] ? 2 : 0);
 const STATS = {
   spear:  { n: 'Zonnewachter', hp: 10, a: 4, d: 5, lo: 1, hi: 3, sp: 2, col: '#3a62d6' },
   bow:    { n: 'Dageraadschutter', hp: 10, a: 6, d: 3, lo: 2, hi: 3, sp: 2, sh: 12, col: '#2e9c5a' },
@@ -202,7 +202,7 @@ const Battle = {
     if (t) {
       if (t.side === 0) return;
       const adjAny = b.st.some(s => s.side === 1 && s.n > 0 && hdist(u, s) === 1);
-      if (STATS[u.id].sh && u.sh > 0 && !adjAny && hdist(u, t) > RANGE) { b.log = 'Buiten bereik (max ' + RANGE + ' vakjes). Loop eerst dichterbij.'; return; }
+      if (STATS[u.id].sh && u.sh > 0 && !adjAny && hdist(u, t) > rangeOf(u)) { b.log = 'Buiten bereik (max ' + rangeOf(u) + ' vakjes). Loop eerst dichterbij.'; return; }
       if (STATS[u.id].sh && u.sh > 0 && !adjAny) this.atk(u, t, true);
       else if (hdist(u, t) === 1) this.atk(u, t, false);
       else {
@@ -1069,7 +1069,7 @@ function terr() {
   return TERR = buildTerrain();
 }
 /* ===== Held met eigen kracht en magie ===== */
-const maxSp = H => 10 * H.know, spd = u => u.sp || STATS[u.id].sp;
+const maxSp = H => 10 * H.know, baseSp = u => STATS[u.id].sp - (u.id === 'knight' && facSide(u.side == null ? 1 : u.side) === 'dark' ? 1 : 0), spd = u => u.sp || baseSp(u);
 const STATNAME = { atk: 'Aanval', def: 'Verdediging', pow: 'Spreukkracht', know: 'Kennis' };
 const SPELLS = { bolt: { n: 'Bliksem', c: 5, foe: true }, haste: { n: 'Haast', c: 4, foe: false }, shield: { n: 'Schild', c: 4, foe: false } };
 Rules.gainXp = function (n) {
@@ -1252,8 +1252,8 @@ let heroSpells = H => ['bolt', 'haste', 'shield', HEROES[H.id].spell];
 function applyHooks(b) {
   const s = Rules.s, hk = HEROES[s.hero.id].hook;
   b.st.forEach(u => { u.n0 = u.n; });
-  if (hk === 'star') b.st.forEach(u => { if (u.side === 0) u.sp = STATS[u.id].sp + 1; });
-  if (b.foe.hero) { const eh = HEROES[s.eh.id].hook; b.st.forEach(u => { if (u.side === 1) { if (eh === 'swift') u.sp = STATS[u.id].sp + 2; if (eh === 'iron') u.bd = 4; } }); }
+  if (hk === 'star') b.st.forEach(u => { if (u.side === 0) u.sp = baseSp(u) + 1; });
+  if (b.foe.hero) { const eh = HEROES[s.eh.id].hook; b.st.forEach(u => { if (u.side === 1) { if (eh === 'swift') u.sp = baseSp(u) + 2; if (eh === 'iron') u.bd = 4; } }); }
 }
 function sunRegen() { const H = Rules.s.hero; if (HEROES[H.id].hook === 'sun' && !(H.down > 0)) H.sp = Math.min(maxSp(H), H.sp + 3); }
 Battle.castAll = function (id) {
@@ -1300,7 +1300,7 @@ applyHooks = function (b) {
   b.st.forEach(u => { u.n0 = u.n; });
   [0, 1].forEach(side => {
     if (side === 1 && !b.foe.hero) return; const hk = hookSide(side);
-    b.st.forEach(u => { if (u.side !== side) return; if (hk === 'star') u.sp = STATS[u.id].sp + 1; if (hk === 'swift') u.sp = STATS[u.id].sp + 2; if (hk === 'iron') u.bd = 4; });
+    b.st.forEach(u => { if (u.side !== side) return; if (hk === 'star') u.sp = baseSp(u) + 1; if (hk === 'swift') u.sp = baseSp(u) + 2; if (hk === 'iron') u.bd = 4; });
   });
 };
 SPELLS.dheal = { n: 'Opwekking', short: 'Opwek', c: 6, foe: false, desc: 'wekt gevallen eenheden op' };
@@ -1819,7 +1819,7 @@ Battle.ai = function () {
     if (!ranged && ratio < 1 && t.ret) { const cu = Object.assign({}, u, { x: pos[0], y: pos[1] }); sc -= Math.min(1, estDmg(t, cu) / hpTot(u)) * outPut(u) * .6; }
     sc -= pos[2] * .01; if (!best || sc > best.sc) best = { sc, t, pos, ranged };
   };
-  if (S.sh && u.sh > 0 && !adjNow) ts.filter(t => hdist(u, t) <= RANGE).forEach(t => consider(t, [u.x, u.y, 0], true));
+  if (S.sh && u.sh > 0 && !adjNow) ts.filter(t => hdist(u, t) <= rangeOf(u)).forEach(t => consider(t, [u.x, u.y, 0], true));
   if (!best && !(S.sh && u.sh > 0 && !adjNow)) for (const t of ts) for (const [k, d] of R) { const p = k.split(',').map(Number); if (hdist({ x: p[0], y: p[1] }, t) === 1) consider(t, [p[0], p[1], d], false); }
   if (best) {
     if (!best.ranged) { u.mv = best.pos[2] > 0; u.x = best.pos[0]; u.y = best.pos[1]; }
@@ -1828,7 +1828,7 @@ Battle.ai = function () {
     const t = ts.reduce((m, x) => hdist(u, x) < hdist(u, m) ? x : m); let bp = null, bd = 99;
     for (const k of R.keys()) { const p = k.split(',').map(Number), d = hdist({ x: p[0], y: p[1] }, t); if (d < bd) { bd = d; bp = p; } }
     if (bp) { u.mv = bp[0] !== u.x || bp[1] !== u.y; u.x = bp[0]; u.y = bp[1]; } b.log = S.slow && !u.mvOk ? 'De oger rust uit.' : 'De vijand rukt op.';
-    const tg = S.sh && u.sh > 0 && !ts.some(x => hdist(u, x) === 1) ? ts.find(x => hdist(u, x) <= RANGE) : null;
+    const tg = S.sh && u.sh > 0 && !ts.some(x => hdist(u, x) === 1) ? ts.find(x => hdist(u, x) <= rangeOf(u)) : null;
     if (tg) this.atk(u, tg, true);
   }
   this.fin();
@@ -2728,7 +2728,7 @@ function optTitle() {
 function drawOptTop() {
   if (Rules.s && OPT.back && OPT.back.mode !== 'title') { drawView(tc, 25, 15, 1); tc.fillStyle = 'rgba(8,4,2,.82)'; tc.fillRect(0, 0, 400, 240); frame(tc, 400, 240); }
   else { drawTitleTop(); tc.fillStyle = 'rgba(8,4,2,.84)'; tc.fillRect(0, 0, 400, 240); frame(tc, 400, 240); }
-  txt(tc, 'Opties', 200, 110, 26, '#f2d27a', 'center', 700); txt(tc, 'Sla je spel hier zelf op: dat gebeurt niet meer vanzelf.', 200, 140, 11, '#fbe9b0', 'center', 600); if (IS3DS) { txt(tc, 'START: opties   L: einde beurt', 200, 170, 11, '#c9b890', 'center', 600); txt(tc, 'SELECT: afsluiten (zonder op te slaan)', 200, 186, 11, '#ff9a8a', 'center', 600); }
+  txt(tc, 'Opties', 200, 110, 26, '#f2d27a', 'center', 700); txt(tc, 'Sla je spel hier zelf op: dat gebeurt niet meer vanzelf.', 200, 140, 11, '#fbe9b0', 'center', 600); if (IS3DS) { txt(tc, 'START: opties   L: einde beurt', 200, 170, 11, '#c9b890', 'center', 600); txt(tc, 'Afsluiten: HOME-knop (sla eerst op!)', 200, 186, 11, '#ff9a8a', 'center', 600); }
 }
 function drawOptBottom() {
   buttons = []; mapBox = null; panelBg(); txt(bc, 'Opties', 160, 24, 16, '#f2d27a', 'center', 700);
@@ -2761,6 +2761,53 @@ DARK.forEach(id => {
   H.earmy = d => { const a = orig(d), P = armyPower(a); return a.map((x, i) => { const sh = unitValue(x.id) * x.n / P; return { id: to[i], n: Math.max(1, Math.round(P * sh / unitValue(to[i]))) }; }); };
 });
 try { globalThis.__v53 = { IS3DS, unitBadge }; } catch (e) {}
+/* ================= v54: vijanden zie je bewegen, vijandelijke held op de minikaart ================= */
+const ANIM = { on: false, hold: false, list: [], t0: 0, dur: 0, after: null, off: false };
+const ASTEP = 150;
+const _seb = startEnemyBattle;
+startEnemyBattle = function () { if (ANIM.hold || ANIM.on) { ANIM.after = _seb; return; } _seb(); };
+function animEnd() { ANIM.on = false; ANIM.list = []; const a = ANIM.after; ANIM.after = null; render(); if (a) { a(); } }
+function animTick() {
+  if (!ANIM.on) return;
+  if (ui.mode !== 'map' || Date.now() - ANIM.t0 >= ANIM.dur) { animEnd(); return; }
+  render(); setTimeout(animTick, 90);
+}
+const _et54 = Rules.endTurn;
+Rules.endTurn = function () {
+  if (ANIM.on) animEnd();
+  const s = this.s, before = (s.foes || []).map(f => [f, f.x, f.y]);
+  ANIM.hold = true; try { _et54.call(this); } finally { ANIM.hold = false; }
+  const list = [];
+  if (!ANIM.off && ui.mode === 'map' && s.seen) {
+    const cm = viewCam(13, 8), vis = (x, y) => x >= cm.x && x < cm.x + 13 && y >= cm.y && y < cm.y + 8 && s.seen[y] && s.seen[y][x];
+    for (const b of before) {
+      const f = b[0]; if (!s.foes.includes(f) || (f.x === b[1] && f.y === b[2])) continue;
+      const p = findPath(b[1], b[2], f.x, f.y); if (!p || !p.tiles.length) continue;
+      const route = p.tiles.slice(); if (route[route.length - 1][0] !== f.x || route[route.length - 1][1] !== f.y) continue;
+      if (vis(b[1], b[2]) || route.some(t => vis(t[0], t[1]))) list.push({ f, from: [b[1], b[2]], route, dir: f.dir });
+    }
+  }
+  if (list.length) {
+    ANIM.list = list; ANIM.t0 = Date.now(); ANIM.dur = (Math.max(...list.map(a => a.route.length)) + 1) * ASTEP; ANIM.on = true; setTimeout(animTick, 90);
+  } else if (ANIM.after) { const a = ANIM.after; ANIM.after = null; a(); }
+};
+const _r54 = render;
+render = function () {
+  if (!(ANIM.on && ui.mode === 'map')) { _r54(); return; }
+  const el = Date.now() - ANIM.t0, saved = ANIM.list.map(a => [a.f, a.f.x, a.f.y, a.f.dir]);
+  for (const a of ANIM.list) {
+    const i = Math.max(0, Math.min(a.route.length, Math.floor(el / ASTEP))), pos = i === 0 ? a.from : a.route[i - 1], prev = i <= 1 ? a.from : a.route[i - 2];
+    a.f.dir = pos[0] > prev[0] ? 'r' : pos[0] < prev[0] ? 'l' : pos[1] < prev[1] ? 'u' : pos[1] > prev[1] ? 'd' : a.f.dir; a.f.x = pos[0]; a.f.y = pos[1];
+  }
+  try { _r54(); } finally { for (const v of saved) { v[0].x = v[1]; v[0].y = v[2]; v[0].dir = v[3]; } }
+};
+const _dm54 = drawMini;
+drawMini = function (c) {
+  _dm54(c); const s = Rules.s; if (!s || !s.seen) return;
+  const f = (s.foes || []).find(x => x.hero); if (!f || !s.seen[f.y] || !s.seen[f.y][f.x]) return;
+  const x0 = 304, y0 = 38; c.fillStyle = '#ffffff'; c.fillRect(x0 + f.x * 2 - 2, y0 + f.y * 2 - 2, 6, 6); c.fillStyle = '#d02cff'; c.fillRect(x0 + f.x * 2 - 1, y0 + f.y * 2 - 1, 4, 4);
+};
+try { globalThis.__v54 = { ANIM }; } catch (e) {}
 ui.hasSave = hasSave(); ui.mode = 'title';
 render();
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);

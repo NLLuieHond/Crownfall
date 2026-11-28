@@ -96,7 +96,6 @@
     }
     if (down & 8) fire(g, 'keydown', kev('Escape'));       /* START = optiesmenu */
     if (down & 512) fire(g, 'keydown', kev('e'));          /* L = einde beurt */
-    if (down & 4) { g.__shutdown(); __quit(); }              /* SELECT = afsluiten */
     runTimers();
   };
   g.__shutdown = function () { document.hidden = true; fire(g, 'pagehide', {}); fire(document, 'visibilitychange', {}); };
