@@ -94,7 +94,8 @@
       if (down & bit) { rep[bit] = 0; fire(g, 'keydown', kev(name)); }
       else if (held & bit) { rep[bit]++; if (rep[bit] >= 14 && (rep[bit] - 14) % 4 === 0) fire(g, 'keydown', kev(name)); }
     }
-    if (down & 8) fire(g, 'keydown', kev('e'));            /* START = einde beurt */
+    if (down & 8) fire(g, 'keydown', kev('Escape'));       /* START = optiesmenu */
+    if (down & 512) fire(g, 'keydown', kev('e'));          /* L = einde beurt */
     if (down & 4) { g.__shutdown(); __quit(); }              /* SELECT = afsluiten */
     runTimers();
   };
